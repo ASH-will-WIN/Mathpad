@@ -130,6 +130,11 @@
 .save-saved .save-dot { background: #55aa7d; }
 .save-saving .save-dot { background: #d29a34; animation: pulse 1.1s ease-in-out infinite; }
 .save-error .save-dot { background: #d95969; }
+.sync-indicator { padding-left: 2px; }
+.sync-synced .save-dot { background: #55aa7d; }
+.sync-syncing .save-dot, .sync-checking .save-dot { background: #d29a34; animation: pulse 1.1s ease-in-out infinite; }
+.sync-offline .save-dot, .sync-disabled .save-dot { background: #9ba6b6; }
+.sync-error .save-dot { background: #d95969; }
 @keyframes pulse { 50% { opacity: .35; transform: scale(.75); } }
 
 .app-layout { display: grid; grid-template-columns: 242px minmax(0, 1fr); min-height: calc(100vh - 68px); }

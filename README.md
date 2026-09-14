@@ -26,4 +26,29 @@ Push this repository to GitHub, GitLab, or Bitbucket, then import it into Vercel
 
 The included `vercel.json` selects the Vercel/Nitro build path automatically.
 
-Math notes are currently stored in the browser's IndexedDB on each device.
+## Storage and Neon sync
+
+MathPad saves to the browser's IndexedDB first, so typing stays fast and the
+editor continues to work offline. When a Neon database is configured, the app
+also syncs notes in the background through `/api/notes`.
+
+To enable cloud sync:
+
+1. Create a Neon Postgres project and copy its pooled connection string.
+2. Add it to your local `.env.local` file:
+
+   ```bash
+   DATABASE_URL=postgresql://...
+   ```
+
+3. Add the same `DATABASE_URL` as an environment variable for the Vercel
+   Production and Preview environments, then redeploy.
+
+The API creates the `mathpad_notes` table automatically on its first request.
+The database stores the editor's structured JSON so lists, proof blocks, and
+editable math round-trip exactly. IndexedDB remains the local fallback when
+Neon is unavailable or not configured. A future backup adapter can use this
+same storage boundary without changing the editor.
+
+Cloud sync is intentionally a single shared workspace for now; there are no
+MathPad accounts or collaboration permissions.

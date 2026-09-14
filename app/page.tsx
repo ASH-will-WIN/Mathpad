@@ -58,9 +58,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  mergeNotes,
+  readLocalNotes,
+  readRemoteNotes,
+  removeLocalNote,
+  removeRemoteNote,
+  RemoteSyncUnavailableError,
+  type NoteDocument,
+  writeLocalNote,
+  writeRemoteNote,
+} from '@/lib/note-storage';
 
 type ThemePreference = 'system' | 'light' | 'dark';
 type SaveState = 'ready' | 'saving' | 'saved' | 'error';
+type SyncState = 'checking' | 'disabled' | 'syncing' | 'synced' | 'offline' | 'error';
 type PaletteKind = 'blocks' | 'math' | null;
 type MathfieldLike = HTMLElement & {
   value: string;
@@ -70,17 +82,6 @@ type MathfieldLike = HTMLElement & {
   lastOffset: number;
 };
 
-type NoteDocument = {
-  version: 1;
-  id: string;
-  title: string;
-  content: JSONContent;
-  updatedAt: number;
-};
-
-const DB_NAME = 'mathpad-db';
-const DB_VERSION = 1;
-const DB_STORE = 'notes';
 const THEME_KEY = 'mathpad-theme';
 const FALLBACK_SHORTCUT_KEY = 'mathpad-fallback-shortcut';
 const DEFAULT_FALLBACK_SHORTCUT = 'Cmd/Ctrl+Shift+M';
@@ -255,70 +256,6 @@ const starterContent: JSONContent = {
     { type: 'paragraph' },
   ],
 };
-
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') {
-      reject(new Error('IndexedDB is not available'));
-      return;
-    }
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => request.result.createObjectStore(DB_STORE, { keyPath: 'id' });
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('Could not open note storage'));
-  });
-}
-
-async function readNotes(): Promise<NoteDocument[]> {
-  try {
-    const db = await openDb();
-    return await new Promise((resolve, reject) => {
-      const request = db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).getAll();
-      request.onsuccess = () => resolve((request.result as NoteDocument[]).sort((a, b) => b.updatedAt - a.updatedAt));
-      request.onerror = () => reject(request.error ?? new Error('Could not read notes'));
-    });
-  } catch {
-    try {
-      const raw = localStorage.getItem('mathpad-notes-fallback');
-      return raw ? (JSON.parse(raw) as NoteDocument[]) : [];
-    } catch {
-      return [];
-    }
-  }
-}
-
-async function writeNote(note: NoteDocument): Promise<void> {
-  try {
-    const db = await openDb();
-    await new Promise<void>((resolve, reject) => {
-      const request = db.transaction(DB_STORE, 'readwrite').objectStore(DB_STORE).put(note);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error ?? new Error('Could not save note'));
-    });
-  } catch {
-    const notes = await readNotes();
-    const next = [...notes.filter((item) => item.id !== note.id), note].sort((a, b) => b.updatedAt - a.updatedAt);
-    localStorage.setItem('mathpad-notes-fallback', JSON.stringify(next));
-  }
-}
-
-async function removeNote(id: string): Promise<void> {
-  try {
-    const db = await openDb();
-    await new Promise<void>((resolve, reject) => {
-      const request = db.transaction(DB_STORE, 'readwrite').objectStore(DB_STORE).delete(id);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error ?? new Error('Could not delete note'));
-    });
-  } finally {
-    try {
-      const notes = await readNotes();
-      localStorage.setItem('mathpad-notes-fallback', JSON.stringify(notes.filter((note) => note.id !== id)));
-    } catch {
-      // IndexedDB is the primary store.
-    }
-  }
-}
 
 function textWithMarks(node: JSONContent): string {
   let text = node.text ?? '';
@@ -726,6 +663,7 @@ export default function Home() {
   const [systemDark, setSystemDark] = useState(false);
   const [mode, setMode] = useState<'text' | 'math'>('text');
   const [saveState, setSaveState] = useState<SaveState>('ready');
+  const [syncState, setSyncState] = useState<SyncState>('checking');
   const [palette, setPalette] = useState<PaletteKind>(null);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -734,6 +672,8 @@ export default function Home() {
   const activeNoteRef = useRef<string | null>(null);
   const titleRef = useRef(title);
   const saveTimerRef = useRef<number | null>(null);
+  const remoteSyncEnabledRef = useRef<boolean | null>(null);
+  const remoteSyncChainRef = useRef(Promise.resolve());
   const paletteInputRef = useRef<HTMLInputElement>(null);
   const resolvedTheme = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
 
@@ -765,6 +705,28 @@ export default function Home() {
     window.requestAnimationFrame(() => paletteInputRef.current?.focus());
   }, [palette]);
 
+  const queueRemoteOperation = useCallback((operation: () => Promise<void>) => {
+    if (remoteSyncEnabledRef.current === false) return;
+    remoteSyncChainRef.current = remoteSyncChainRef.current.then(async () => {
+      setSyncState('syncing');
+      try {
+        await operation();
+        remoteSyncEnabledRef.current = true;
+        setSyncState('synced');
+      } catch (error) {
+        if (error instanceof RemoteSyncUnavailableError) {
+          remoteSyncEnabledRef.current = false;
+          setSyncState('disabled');
+        } else {
+          setSyncState(navigator.onLine ? 'error' : 'offline');
+        }
+      }
+    });
+  }, []);
+
+  const syncRemoteNote = useCallback((note: NoteDocument) => queueRemoteOperation(() => writeRemoteNote(note)), [queueRemoteOperation]);
+  const syncRemoteDelete = useCallback((id: string) => queueRemoteOperation(() => removeRemoteNote(id)), [queueRemoteOperation]);
+
   const queueSave = useCallback(() => {
     if (!hydratedRef.current || !editorRef.current || !activeNoteRef.current) return;
     setSaveState('saving');
@@ -775,12 +737,13 @@ export default function Home() {
       if (!editor || !id) return;
       const next: NoteDocument = { version: 1, id, title: titleRef.current.trim() || 'Untitled note', content: editor.getJSON(), updatedAt: Date.now() };
       try {
-        await writeNote(next);
+        await writeLocalNote(next);
         setNotes((current) => [next, ...current.filter((note) => note.id !== id)].sort((a, b) => b.updatedAt - a.updatedAt));
         setSaveState('saved');
+        syncRemoteNote(next);
       } catch { setSaveState('error'); }
     }, 450);
-  }, []);
+  }, [syncRemoteNote]);
 
   const flushSave = useCallback(async () => {
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
@@ -789,11 +752,12 @@ export default function Home() {
     if (!editor || !id || !hydratedRef.current) return;
     const next: NoteDocument = { version: 1, id, title: titleRef.current.trim() || 'Untitled note', content: editor.getJSON(), updatedAt: Date.now() };
     try {
-      await writeNote(next);
+      await writeLocalNote(next);
       setNotes((current) => [next, ...current.filter((note) => note.id !== id)].sort((a, b) => b.updatedAt - a.updatedAt));
       setSaveState('saved');
+      syncRemoteNote(next);
     } catch { setSaveState('error'); }
-  }, []);
+  }, [syncRemoteNote]);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -874,7 +838,37 @@ export default function Home() {
   useEffect(() => {
     if (!editor) return;
     let cancelled = false;
-    void readNotes().then(async (stored) => {
+    const hydrate = async () => {
+      const localNotes = await readLocalNotes();
+      if (cancelled) return;
+      let stored = localNotes;
+      try {
+        const remote = await readRemoteNotes();
+        remoteSyncEnabledRef.current = true;
+        const deletedAtById = new Map(remote.deleted.map((item) => [item.id, item.deletedAt]));
+        const localNotesToKeep = localNotes.filter((note) => {
+          const deletedAt = deletedAtById.get(note.id);
+          if (deletedAt && deletedAt >= note.updatedAt) {
+            void removeLocalNote(note.id);
+            return false;
+          }
+          return true;
+        });
+        stored = mergeNotes(localNotesToKeep, remote.notes);
+        if (stored.length > 0) {
+          setSyncState('syncing');
+          await Promise.all(stored.map((note) => writeLocalNote(note)));
+          await Promise.all(stored.map((note) => writeRemoteNote(note)));
+          setSyncState('synced');
+        }
+      } catch (error) {
+        if (error instanceof RemoteSyncUnavailableError) {
+          remoteSyncEnabledRef.current = false;
+          setSyncState('disabled');
+        } else {
+          setSyncState(navigator.onLine ? 'error' : 'offline');
+        }
+      }
       if (cancelled) return;
       if (stored.length > 0) {
         const initial = stored[0];
@@ -892,13 +886,15 @@ export default function Home() {
         setTitle(initial.title);
         titleRef.current = initial.title;
         editor.commands.setContent(initial.content, { emitUpdate: false });
-        await writeNote(initial);
+        await writeLocalNote(initial);
         setSaveState('saved');
+        syncRemoteNote(initial);
       }
       hydratedRef.current = true;
-    });
+    };
+    void hydrate();
     return () => { cancelled = true; };
-  }, [editor]);
+  }, [editor, syncRemoteNote]);
 
   useEffect(() => {
     const onVisibility = () => { if (document.visibilityState === 'hidden') void flushSave(); };
@@ -937,7 +933,8 @@ export default function Home() {
   const createNote = async () => {
     await flushSave();
     const note: NoteDocument = { version: 1, id: makeId(), title: 'New discrete math note', content: emptyContent(), updatedAt: Date.now() };
-    await writeNote(note);
+    await writeLocalNote(note);
+    syncRemoteNote(note);
     setNotes((current) => [note, ...current]);
     setActiveNoteId(note.id);
     activeNoteRef.current = note.id;
@@ -962,8 +959,10 @@ export default function Home() {
   const deleteCurrentNote = async () => {
     if (!activeNoteId || notes.length <= 1 || !window.confirm('Delete this note?')) return;
     await flushSave();
-    await removeNote(activeNoteId);
-    const remaining = notes.filter((note) => note.id !== activeNoteId);
+    const deletedNoteId = activeNoteId;
+    await removeLocalNote(deletedNoteId);
+    syncRemoteDelete(deletedNoteId);
+    const remaining = notes.filter((note) => note.id !== deletedNoteId);
     const next = remaining[0];
     setNotes(remaining);
     setActiveNoteId(next.id);
@@ -1007,6 +1006,7 @@ export default function Home() {
 
   const activeNote = notes.find((note) => note.id === activeNoteId);
   const filteredItems = useMemo(() => (palette === 'blocks' ? blockItems : mathItems), [palette]);
+  const syncStatusText = syncState === 'checking' ? 'Checking cloud' : syncState === 'disabled' ? 'Cloud sync off' : syncState === 'syncing' ? 'Syncing cloud' : syncState === 'synced' ? 'Synced to cloud' : syncState === 'offline' ? 'Offline · local only' : 'Cloud sync issue';
 
   return (
     <main className="mathpad-shell">
@@ -1017,6 +1017,7 @@ export default function Home() {
         </div>
         <div className="header-actions">
           <div className={`save-indicator save-${saveState}`} aria-live="polite"><span className="save-dot" />{saveState === 'saving' ? 'Saving locally' : saveState === 'error' ? 'Save issue' : saveState === 'saved' ? 'Saved locally' : 'Ready'}</div>
+          <div className={`save-indicator sync-indicator sync-${syncState}`} aria-live="polite" title={syncState === 'disabled' ? 'Add DATABASE_URL to your Vercel project to enable Neon sync.' : undefined}><span className="save-dot" />{syncStatusText}</div>
           <Select value={theme} onValueChange={updateTheme}>
             <SelectTrigger className="theme-select" aria-label="Theme"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="system"><Monitor size={14} /> System</SelectItem><SelectItem value="light"><Sun size={14} /> Light</SelectItem><SelectItem value="dark"><Moon size={14} /> Dark</SelectItem></SelectContent>
@@ -1045,7 +1046,7 @@ export default function Home() {
             <div className="editor-shell">{palette && <dialog open className="palette-panel" aria-label={palette === 'blocks' ? 'Blocks and structure' : 'Math symbols'} onKeyDown={(event) => { if (event.key === 'Escape') { setPalette(null); editor?.commands.focus(); } }}><div className="palette-header"><div><span className="eyebrow">Quick insert</span><strong>{palette === 'blocks' ? 'Blocks & structure' : 'Math symbols'}</strong></div><Button type="button" variant="ghost" size="icon-xs" onClick={() => { setPalette(null); editor?.commands.focus(); }} aria-label="Close palette"><X size={15} /></Button></div><Command value={paletteQuery} onValueChange={setPaletteQuery} shouldFilter><CommandInput ref={paletteInputRef} placeholder={palette === 'blocks' ? 'Search blocks…' : 'Search symbols…'} /><CommandList><CommandEmpty>No matching insert.</CommandEmpty><CommandGroup heading={palette === 'blocks' ? 'Insert' : 'Discrete math first'}>{filteredItems.map((item) => <CommandItem key={item.id} value={`${item.label} ${item.detail} ${item.shortcut ?? ''}`} onSelect={() => selectPaletteItem(item)}><span className="palette-icon">{item.icon}</span><span className="palette-copy"><strong>{item.label}</strong><small>{item.detail}</small></span>{item.shortcut && <CommandShortcut>{item.shortcut}</CommandShortcut>}</CommandItem>)}</CommandGroup></CommandList></Command></dialog>}
               <EditorContent editor={editor} />
             </div>
-            <footer className="paper-footer"><span>Press <kbd>/</kbd> for math · <kbd>Tab</kbd> exits math or indents lists · <kbd>Enter</kbd> continues lists</span><span className="footer-mark">MathPad · v1 local</span></footer>
+            <footer className="paper-footer"><span>Press <kbd>/</kbd> for math · <kbd>Tab</kbd> exits math or indents lists · <kbd>Enter</kbd> continues lists</span><span className="footer-mark">MathPad · local-first</span></footer>
           </article></div>
         </section>
       </div>
