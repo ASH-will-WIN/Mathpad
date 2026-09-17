@@ -377,23 +377,32 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
   const initialLatexRef = useRef(node.attrs.latex ?? '');
   const autoWrappedRef = useRef(Boolean(node.attrs.autoWrapped));
   const wrappingRef = useRef(false);
+  const exitingRef = useRef(false);
   const [editing, setEditing] = useState(false);
   const display = node.type.name === 'mathBlock';
   const latex = node.attrs.latex ?? '';
   const hasIssue = hasRecoverableMathIssue(latex);
 
   const exitMath = useCallback((direction: 'before' | 'after' = 'after') => {
+    if (exitingRef.current) return;
     const position = typeof getPos === 'function' ? getPos() : undefined;
     const field = fieldRef.current;
     if (position === undefined || !field) return;
+    exitingRef.current = true;
     const latex = field.value.trim();
-    if (!latex) {
-      editor.commands.deleteRange({ from: position, to: position + 1 });
-      editor.commands.focus();
-      return;
+    try {
+      if (!latex) {
+        editor.commands.deleteRange({ from: position, to: position + 1 });
+        editor.commands.focus();
+        return;
+      }
+      updateAttributes({ latex: field.value });
+      editor.chain().focus().setTextSelection(direction === 'before' ? position : position + 1).run();
+    } catch {
+      // The node can disappear while MathLive is handing focus back to Tiptap.
+    } finally {
+      window.setTimeout(() => { exitingRef.current = false; }, 0);
     }
-    updateAttributes({ latex: field.value });
-    editor.chain().focus().setTextSelection(direction === 'before' ? position : position + 1).run();
   }, [editor, getPos, updateAttributes]);
 
   useEffect(() => {
@@ -499,8 +508,19 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
         if (event.key === 'Tab' || event.key === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
+          event.stopImmediatePropagation();
           exitMath(event.key === 'Tab' && event.shiftKey ? 'before' : 'after');
         }
+      };
+      const handleDocumentKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== 'Tab' && event.key !== 'Escape') return;
+        if (!field) return;
+        const path = event.composedPath();
+        if (document.activeElement !== field && !path.includes(field)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        exitMath(event.key === 'Tab' && event.shiftKey ? 'before' : 'after');
       };
       const handleToggle = () => {
         if (document.activeElement === field) exitMath('after');
@@ -518,6 +538,10 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
       field.addEventListener('focus', handleFocus);
       field.addEventListener('blur', handleBlur);
       field.addEventListener('keydown', handleKeyDown);
+      // MathLive renders its editing surface inside a shadow root. Capture
+      // here so Tab cannot fall through to browser focus navigation before
+      // the field's own keydown listener sees it.
+      document.addEventListener('keydown', handleDocumentKeyDown, true);
       window.addEventListener('mathpad:toggle-math', handleToggle);
       window.addEventListener('mathpad:focus-math', handleRequestedFocus);
       if (pendingMathFocusId === node.attrs.id) {
@@ -533,6 +557,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
         field.removeEventListener('focus', handleFocus);
         field.removeEventListener('blur', handleBlur);
         field.removeEventListener('keydown', handleKeyDown);
+        document.removeEventListener('keydown', handleDocumentKeyDown, true);
         window.removeEventListener('mathpad:toggle-math', handleToggle);
         window.removeEventListener('mathpad:focus-math', handleRequestedFocus);
         field.remove();
@@ -800,16 +825,22 @@ export default function Home() {
           return true;
         }
         if (event.key === 'Tab' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-          const inList = Boolean(editorRef.current?.isActive('bulletList') || editorRef.current?.isActive('orderedList') || editorRef.current?.isActive('taskList'));
-          if (inList) {
-            const listItem = view.state.schema.nodes.taskItem && editorRef.current?.isActive('taskItem') ? 'taskItem' : 'listItem';
-            if (event.shiftKey) editorRef.current?.commands.liftListItem(listItem);
-            else editorRef.current?.commands.sinkListItem(listItem);
+          let listItem: 'taskItem' | 'listItem' | null = null;
+          for (let depth = view.state.selection.$from.depth; depth > 0; depth -= 1) {
+            const nodeName = view.state.selection.$from.node(depth).type.name;
+            if (nodeName === 'taskItem' || nodeName === 'listItem') {
+              listItem = nodeName;
+              break;
+            }
           }
-          // Keep Tab inside the note instead of letting the browser focus the
-          // next math-field. MathLive owns Tab only while its field is active.
+          // Tab is indentation only inside a list. Outside a list, leave the
+          // browser's normal focus behavior alone instead of hijacking it.
+          if (!listItem) return false;
+          const commandHandled = event.shiftKey
+            ? editorRef.current?.commands.liftListItem(listItem)
+            : editorRef.current?.commands.sinkListItem(listItem);
           event.preventDefault();
-          return true;
+          return commandHandled || true;
         }
         return false;
       },
@@ -1017,7 +1048,6 @@ export default function Home() {
         </div>
         <div className="header-actions">
           <div className={`save-indicator save-${saveState}`} aria-live="polite"><span className="save-dot" />{saveState === 'saving' ? 'Saving locally' : saveState === 'error' ? 'Save issue' : saveState === 'saved' ? 'Saved locally' : 'Ready'}</div>
-          <div className={`save-indicator sync-indicator sync-${syncState}`} aria-live="polite" title={syncState === 'disabled' ? 'Add DATABASE_URL to your Vercel project to enable Neon sync.' : undefined}><span className="save-dot" />{syncStatusText}</div>
           <Select value={theme} onValueChange={updateTheme}>
             <SelectTrigger className="theme-select" aria-label="Theme"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="system"><Monitor size={14} /> System</SelectItem><SelectItem value="light"><Sun size={14} /> Light</SelectItem><SelectItem value="dark"><Moon size={14} /> Dark</SelectItem></SelectContent>
@@ -1036,7 +1066,7 @@ export default function Home() {
         </aside>}
 
         <section className="workspace">
-          <div className="workspace-bar"><div className="breadcrumb"><span>MathPad</span><span>/</span><span>{activeNote?.title || 'New note'}</span></div><div className="workspace-hints"><span className={`mode-pill mode-${mode}`}><span className="mode-dot" /> {mode === 'math' ? 'Math' : 'Text'}</span><span className="hint-chip"><kbd>/</kbd> math</span><span className="hint-chip"><kbd>+</kbd> blocks</span><span className="hint-chip"><kbd>\\</kbd> symbols</span></div></div>
+          <div className="workspace-bar"><div className="breadcrumb"><span>MathPad</span><span>/</span><span>{activeNote?.title || 'New note'}</span></div><div className="workspace-hints"><span className={`mode-pill mode-${mode}`}><span className="mode-dot" /> {mode === 'math' ? 'Math' : 'Text'}</span><span className={`sync-pill sync-${syncState}`} aria-live="polite" title={syncState === 'disabled' ? 'Add DATABASE_URL to your Vercel project and redeploy to enable Neon sync.' : undefined}><span className="save-dot" />{syncStatusText}</span><span className="hint-chip"><kbd>/</kbd> math</span><span className="hint-chip"><kbd>+</kbd> blocks</span><span className="hint-chip"><kbd>\\</kbd> symbols</span></div></div>
 
           <div className="paper-wrap"><article className="paper">
             <div className="paper-topline"><input className="note-title-input" value={title} onChange={(event) => { setTitle(event.target.value); titleRef.current = event.target.value; queueSave(); }} aria-label="Note title" placeholder="Untitled note" /><div className="paper-actions"><IconButton label="Undo" onClick={() => editor?.chain().focus().undo().run()} disabled={!editor?.can().undo()}><Undo2 size={16} /></IconButton><IconButton label="Redo" onClick={() => editor?.chain().focus().redo().run()} disabled={!editor?.can().redo()}><Redo2 size={16} /></IconButton><IconButton label="Print or save PDF" onClick={() => window.print()}><FileText size={16} /></IconButton><IconButton label="Delete note" onClick={() => void deleteCurrentNote()} disabled={notes.length <= 1}><Trash2 size={16} /></IconButton></div></div>

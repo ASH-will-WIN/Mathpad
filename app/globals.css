@@ -107,7 +107,7 @@
 
 .mathpad-shell { min-height: 100vh; background: var(--background); color: var(--ink); transition: background .2s ease, color .2s ease; }
 .app-header { height: 68px; padding: 0 28px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--background) 88%, transparent); }
-.brand-lockup, .header-actions, .brand-lockup > div, .workspace-hints, .breadcrumb, .paper-topline, .paper-actions, .editor-toolbar, .sidebar-heading, .note-list-item, .save-indicator, .workspace-bar, .local-lock { display: flex; align-items: center; }
+.brand-lockup, .header-actions, .brand-lockup > div, .workspace-hints, .breadcrumb, .paper-topline, .paper-actions, .editor-toolbar, .sidebar-heading, .note-list-item, .save-indicator, .sync-pill, .workspace-bar, .local-lock { display: flex; align-items: center; }
 .brand-lockup { gap: 11px; min-width: 210px; }
 .brand-mark { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--ink); color: var(--paper); box-shadow: 0 4px 12px rgba(48, 63, 84, .18); }
 .brand-name { font-size: 15px; font-weight: 750; letter-spacing: -.02em; line-height: 1.15; }
@@ -126,6 +126,8 @@
 .settings-popover input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 15%, transparent); }
 .settings-popover small { color: var(--ink-soft); font-size: 9px; line-height: 1.5; margin-top: 7px; }
 .save-indicator { gap: 7px; color: var(--ink-soft); font-size: 11px; white-space: nowrap; }
+.sync-pill { gap: 5px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px; color: var(--ink-soft); background: color-mix(in srgb, var(--paper) 55%, transparent); font-size: 10px; white-space: nowrap; }
+.sync-pill .save-dot { flex: 0 0 auto; }
 .save-dot { width: 7px; height: 7px; border-radius: 999px; background: #9ba6b6; }
 .save-saved .save-dot { background: #55aa7d; }
 .save-saving .save-dot { background: #d29a34; animation: pulse 1.1s ease-in-out infinite; }
