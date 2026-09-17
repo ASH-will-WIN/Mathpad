@@ -9,7 +9,7 @@ import {
   type NodeViewProps,
   useEditor,
 } from '@tiptap/react';
-import { Node, mergeAttributes, type Editor, type JSONContent } from '@tiptap/core';
+import { InputRule, Mark, Node, mergeAttributes, type Editor, type JSONContent } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import TaskItem from '@tiptap/extension-task-item';
@@ -99,14 +99,62 @@ const disabledDoubledSetShortcuts = ['NN', 'ZZ', 'QQ', 'RR'];
 
 function normalizeMathShortcuts(latex: string) {
   const withExponents = latex.replace(/(^|[^A-Za-z\\])([a-z])(\d+)/g, (_match, prefix: string, letter: string, digits: string) => `${prefix}${letter}${digits.length === 1 ? `^${digits}` : `^{${digits}}`}`);
+  const withNegation = withExponents.replace(/(^|[^A-Za-z\\])(?:neg|not)(?=\s|$)/g, (_match, prefix: string) => `${prefix}\\neg`);
   const protectedTokens: string[] = [];
-  const masked = withExponents.replace(/\\(?:mathbb|Bbb|mathbf|mathrm)\{[NZQRC]\}/g, (token) => {
+  const masked = withNegation.replace(/\\(?:mathbb|Bbb|mathbf|mathrm)\{[NZQRC]\}/g, (token) => {
     protectedTokens.push(token);
     return `\uE000${protectedTokens.length - 1}\uE001`;
   });
   const converted = masked.replace(/(^|[^A-Za-z\\])([NZQRC])(?=$|[^A-Za-z])/g, (_match, prefix: string, symbol: string) => `${prefix}${discreteSetShorthands[symbol]}`);
   return converted.replace(/\uE000(\d+)\uE001/g, (_match, index: string) => protectedTokens[Number(index)]);
 }
+
+function scriptInputRule(operator: '^' | '_', markName: string) {
+  const find = operator === '^'
+    ? /(^|[^A-Za-z0-9\\])([A-Za-z0-9]+)(\^)(?:\{([^{}]+)\}|([A-Za-z0-9]+))$/
+    : /(^|[^A-Za-z0-9\\])([A-Za-z0-9]+)(_)(?:\{([^{}]+)\}|([A-Za-z0-9]+))$/;
+
+  return new InputRule({
+    find,
+    handler: ({ state, range, match }) => {
+      const leading = match[1] ?? '';
+      const base = match[2] ?? '';
+      const script = match[4] ?? match[5] ?? '';
+      if (!base || !script) return null;
+
+      const operatorPosition = range.from + leading.length + base.length;
+      const hasBraces = Boolean(match[4]);
+      const transaction = state.tr;
+      const markType = state.schema.marks[markName];
+      if (!markType) return null;
+      transaction.delete(operatorPosition, operatorPosition + (hasBraces ? 2 : 1));
+      if (hasBraces) {
+        const closingBracePosition = operatorPosition + script.length;
+        transaction.delete(closingBracePosition, closingBracePosition + 1);
+      }
+      transaction.addMark(operatorPosition, operatorPosition + script.length, markType.create());
+      transaction.removeStoredMark(markType);
+    },
+  });
+}
+
+const Superscript = Mark.create({
+  name: 'superscript',
+  inclusive: false,
+  excludes: 'subscript',
+  parseHTML() { return [{ tag: 'sup' }]; },
+  renderHTML({ HTMLAttributes }) { return ['sup', mergeAttributes(HTMLAttributes), 0]; },
+  addInputRules() { return [scriptInputRule('^', this.name)]; },
+});
+
+const Subscript = Mark.create({
+  name: 'subscript',
+  inclusive: false,
+  excludes: 'superscript',
+  parseHTML() { return [{ tag: 'sub' }]; },
+  renderHTML({ HTMLAttributes }) { return ['sub', mergeAttributes(HTMLAttributes), 0]; },
+  addInputRules() { return [scriptInputRule('_', this.name)]; },
+});
 
 function matchesShortcut(event: KeyboardEvent, shortcut: string) {
   const parts = shortcut.toLowerCase().split('+').map((part) => part.trim()).filter(Boolean);
@@ -265,6 +313,8 @@ function textWithMarks(node: JSONContent): string {
     if (mark.type === 'underline') text = `<u>${text}</u>`;
     if (mark.type === 'strike') text = `~~${text}~~`;
     if (mark.type === 'code') text = `\`${text}\``;
+    if (mark.type === 'superscript') text = `^{${text}}`;
+    if (mark.type === 'subscript') text = `_{${text}}`;
   }
   return text;
 }
@@ -657,6 +707,7 @@ const blockItems: PaletteItem[] = [
 ];
 
 const mathItems: PaletteItem[] = [
+  { id: 'negation', label: 'Not / negation', detail: 'Logical negation', shortcut: 'neg', icon: '¬', action: { kind: 'inlineMath', latex: '\\neg ' } },
   { id: 'forall', label: 'For all', detail: 'Universal quantifier', shortcut: 'forall', icon: '∀', action: { kind: 'inlineMath', latex: '\\forall ' } },
   { id: 'exists', label: 'There exists', detail: 'Existential quantifier', shortcut: 'exists', icon: '∃', action: { kind: 'inlineMath', latex: '\\exists ' } },
   { id: 'implies', label: 'Implies', detail: 'Logical implication', shortcut: 'implies', icon: '⇒', action: { kind: 'inlineMath', latex: '\\implies ' } },
@@ -697,6 +748,7 @@ export default function Home() {
   const activeNoteRef = useRef<string | null>(null);
   const titleRef = useRef(title);
   const saveTimerRef = useRef<number | null>(null);
+  const pendingSaveRef = useRef(false);
   const remoteSyncEnabledRef = useRef<boolean | null>(null);
   const remoteSyncChainRef = useRef(Promise.resolve());
   const paletteInputRef = useRef<HTMLInputElement>(null);
@@ -754,9 +806,13 @@ export default function Home() {
 
   const queueSave = useCallback(() => {
     if (!hydratedRef.current || !editorRef.current || !activeNoteRef.current) return;
+    pendingSaveRef.current = true;
     setSaveState('saving');
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(async () => {
+      saveTimerRef.current = null;
+      if (!pendingSaveRef.current) return;
+      pendingSaveRef.current = false;
       const editor = editorRef.current;
       const id = activeNoteRef.current;
       if (!editor || !id) return;
@@ -771,7 +827,12 @@ export default function Home() {
   }, [syncRemoteNote]);
 
   const flushSave = useCallback(async () => {
-    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    if (!pendingSaveRef.current) return;
+    pendingSaveRef.current = false;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
     const editor = editorRef.current;
     const id = activeNoteRef.current;
     if (!editor || !id || !hydratedRef.current) return;
@@ -788,6 +849,8 @@ export default function Home() {
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] }, bulletList: { keepMarks: true }, orderedList: { keepMarks: true } }),
+      Superscript,
+      Subscript,
       TaskList,
       TaskItem.configure({ nested: true }),
       Placeholder.configure({ placeholder: 'Start with a thought… Press / for inline math.' }),
@@ -966,7 +1029,7 @@ export default function Home() {
     const note: NoteDocument = { version: 1, id: makeId(), title: 'New discrete math note', content: emptyContent(), updatedAt: Date.now() };
     await writeLocalNote(note);
     syncRemoteNote(note);
-    setNotes((current) => [note, ...current]);
+    setNotes((current) => [note, ...current].sort((a, b) => b.updatedAt - a.updatedAt));
     setActiveNoteId(note.id);
     activeNoteRef.current = note.id;
     setTitle(note.title);

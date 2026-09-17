@@ -207,6 +207,9 @@
 .note-editor-content ul[data-type='taskList'] > li > label { padding-top: 4px; }
 .note-editor-content ul[data-type='taskList'] input[type='checkbox'] { accent-color: var(--blue); width: 15px; height: 15px; }
 .note-editor-content li[data-checked='true'] > div { color: var(--ink-soft); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink-soft) 50%, transparent); }
+.note-editor-content sup, .note-editor-content sub { font-size: .72em; line-height: 0; position: relative; vertical-align: baseline; }
+.note-editor-content sup { top: -.45em; }
+.note-editor-content sub { bottom: -.2em; }
 .note-editor-content blockquote { border-left: 3px solid var(--blue); margin: 20px 0; padding: 8px 0 8px 18px; color: var(--ink-soft); }
 .note-editor-content hr { border: 0; border-top: 1px solid var(--paper-line); margin: 30px 0; }
 .note-editor-content p.is-editor-empty:first-child::before { color: var(--ink-soft); opacity: .6; content: attr(data-placeholder); float: left; height: 0; pointer-events: none; }
