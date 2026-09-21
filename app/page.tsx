@@ -20,6 +20,9 @@ import {
   BookOpen,
   CheckCircle2,
   Code2,
+  Copy,
+  ChevronLeft,
+  ChevronRight,
   Download,
   FileText,
   Heading3,
@@ -29,7 +32,9 @@ import {
   ListOrdered,
   Monitor,
   Moon,
+  MoreHorizontal,
   NotebookPen,
+  Pencil,
   Plus,
   Quote,
   Redo2,
@@ -84,6 +89,7 @@ type MathfieldLike = HTMLElement & {
 
 const THEME_KEY = 'mathpad-theme';
 const FALLBACK_SHORTCUT_KEY = 'mathpad-fallback-shortcut';
+const SIDEBAR_KEY = 'mathpad-sidebar-open';
 const DEFAULT_FALLBACK_SHORTCUT = 'Cmd/Ctrl+Shift+M';
 let pendingMathFocusId: string | null = null;
 type MathFocusPosition = 'start' | 'end';
@@ -96,6 +102,14 @@ const discreteSetShorthands: Record<string, string> = {
   C: '\\mathbb{C}',
 };
 const disabledDoubledSetShortcuts = ['NN', 'ZZ', 'QQ', 'RR'];
+const MATHPAD_CLIPBOARD_TYPE = 'application/x-mathpad-content';
+
+type MathPadClipboardPayload = {
+  version: 1;
+  openStart: number;
+  openEnd: number;
+  content: JSONContent[];
+};
 
 function normalizeMathShortcuts(latex: string) {
   const withExponents = latex.replace(/(^|[^A-Za-z\\])([a-z])(\d+)/g, (_match, prefix: string, letter: string, digits: string) => `${prefix}${letter}${digits.length === 1 ? `^${digits}` : `^{${digits}}`}`);
@@ -266,8 +280,29 @@ const makeId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `note-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const timestampNow = () => Date.now();
 
 const emptyContent = (): JSONContent => ({ type: 'doc', content: [{ type: 'paragraph' }] });
+
+function cloneContentWithFreshMathIds(node: JSONContent): JSONContent {
+  const cloned: JSONContent = { ...node };
+  if (node.attrs) cloned.attrs = { ...node.attrs };
+  if (node.type === 'mathInline' || node.type === 'mathBlock') {
+    cloned.attrs = { ...cloned.attrs, id: makeId() };
+  }
+  if (node.content) cloned.content = node.content.map(cloneContentWithFreshMathIds);
+  return cloned;
+}
+
+function formatNoteDate(timestamp: number) {
+  const date = new Date(timestamp);
+  const today = new Date();
+  const isToday = date.getFullYear() === today.getFullYear()
+    && date.getMonth() === today.getMonth()
+    && date.getDate() === today.getDate();
+  if (isToday) return `Today · ${date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
+}
 
 const starterContent: JSONContent = {
   type: 'doc',
@@ -337,6 +372,27 @@ function nodeToMarkdown(node: JSONContent): string {
     case 'noteBlock': return `> **${node.attrs?.title || node.attrs?.kind || 'Note'}**\n\n${children}`;
     case 'hardBreak': return '  \n';
     default: return children;
+  }
+}
+
+function contentToMarkdown(content: JSONContent[]) {
+  return nodeToMarkdown({ type: 'doc', content }).trim();
+}
+
+function parseMathPadClipboardPayload(value: string): MathPadClipboardPayload | null {
+  try {
+    const parsed = JSON.parse(value) as Partial<MathPadClipboardPayload>;
+    if (parsed.version !== 1 || !Array.isArray(parsed.content)) return null;
+    if (typeof parsed.openStart !== 'number' || typeof parsed.openEnd !== 'number') return null;
+    if (!Number.isInteger(parsed.openStart) || !Number.isInteger(parsed.openEnd)) return null;
+    return {
+      version: 1,
+      openStart: parsed.openStart,
+      openEnd: parsed.openEnd,
+      content: parsed.content,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -743,9 +799,14 @@ export default function Home() {
   const [palette, setPalette] = useState<PaletteKind>(null);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [noteMenuId, setNoteMenuId] = useState<string | null>(null);
+  const [renameNoteId, setRenameNoteId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const hydratedRef = useRef(false);
   const editorRef = useRef<Editor | null>(null);
   const activeNoteRef = useRef<string | null>(null);
+  const noteOperationRef = useRef(0);
+  const sidebarPreferenceLoadedRef = useRef(false);
   const titleRef = useRef(title);
   const saveTimerRef = useRef<number | null>(null);
   const pendingSaveRef = useRef(false);
@@ -771,6 +832,56 @@ export default function Home() {
       media.removeEventListener('change', update);
     };
   }, []);
+
+  useEffect(() => {
+    const settingsTimer = window.setTimeout(() => {
+      const savedSidebarState = window.localStorage.getItem(SIDEBAR_KEY);
+      if (savedSidebarState === 'open' || savedSidebarState === 'closed') setSidebarOpen(savedSidebarState === 'open');
+      sidebarPreferenceLoadedRef.current = true;
+    }, 0);
+    return () => window.clearTimeout(settingsTimer);
+  }, []);
+
+  useEffect(() => {
+    if (sidebarPreferenceLoadedRef.current) window.localStorage.setItem(SIDEBAR_KEY, sidebarOpen ? 'open' : 'closed');
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    if (!noteMenuId && !renameNoteId && sidebarOpen) return;
+    const closeTransientUi = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest('.note-item-actions')) return;
+      setNoteMenuId(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (noteMenuId) {
+        event.preventDefault();
+        setNoteMenuId(null);
+      } else if (renameNoteId) {
+        event.preventDefault();
+        setRenameNoteId(null);
+      } else if (window.innerWidth <= 640 && sidebarOpen) {
+        setSidebarOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', closeTransientUi);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', closeTransientUi);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [noteMenuId, renameNoteId, sidebarOpen]);
+
+  useEffect(() => {
+    if (!renameNoteId) return;
+    const focusTimer = window.requestAnimationFrame(() => {
+      const input = document.querySelector('.note-rename-input') as HTMLInputElement | null;
+      input?.focus();
+      input?.select();
+    });
+    return () => window.cancelAnimationFrame(focusTimer);
+  }, [renameNoteId]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
@@ -861,6 +972,40 @@ export default function Home() {
     content: starterContent,
     editorProps: {
       attributes: { class: 'note-editor-content', spellcheck: 'true', 'aria-label': 'MathPad note editor' },
+      handleDOMEvents: {
+        copy: (view, event) => {
+          const clipboardEvent = event as ClipboardEvent;
+          const clipboard = clipboardEvent.clipboardData;
+          if (!clipboard || view.state.selection.empty) return false;
+
+          const slice = view.state.selection.content();
+          const content = slice.content.toJSON() as JSONContent[];
+          const serialized = view.serializeForClipboard(slice);
+          const fallbackText = contentToMarkdown(content) || serialized.text;
+
+          clipboard.clearData();
+          try {
+            clipboard.setData(MATHPAD_CLIPBOARD_TYPE, JSON.stringify({
+              version: 1,
+              openStart: slice.openStart,
+              openEnd: slice.openEnd,
+              content,
+            } satisfies MathPadClipboardPayload));
+          } catch {
+            // Some browsers reject custom clipboard MIME types. HTML and text
+            // remain available as the portable fallbacks.
+          }
+          clipboard.setData('text/html', serialized.dom.innerHTML);
+          clipboard.setData('text/plain', fallbackText);
+          try {
+            clipboard.setData('text/markdown', fallbackText);
+          } catch {
+            // text/markdown is an optional browser clipboard flavor.
+          }
+          clipboardEvent.preventDefault();
+          return true;
+        },
+      },
       handleKeyDown: (view, event) => {
         if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight') && view.state.selection.empty) {
           const adjacentNode = event.key === 'ArrowLeft' ? view.state.selection.$from.nodeBefore : view.state.selection.$from.nodeAfter;
@@ -908,9 +1053,17 @@ export default function Home() {
         return false;
       },
       handlePaste: (_view, event) => {
+        const mathPadClipboard = event.clipboardData?.getData(MATHPAD_CLIPBOARD_TYPE);
         const markdown = event.clipboardData?.getData('text/markdown');
         const activeEditor = editorRef.current;
-        if (!markdown || !activeEditor) return false;
+        if (!activeEditor) return false;
+        const payload = mathPadClipboard ? parseMathPadClipboardPayload(mathPadClipboard) : null;
+        if (payload) {
+          event.preventDefault();
+          activeEditor.commands.insertContent(payload.content);
+          return true;
+        }
+        if (!markdown) return false;
         event.preventDefault();
         activeEditor.commands.insertContent(markdownToContent(markdown).content ?? []);
         return true;
@@ -1025,7 +1178,9 @@ export default function Home() {
   };
 
   const createNote = async () => {
+    const operation = ++noteOperationRef.current;
     await flushSave();
+    if (operation !== noteOperationRef.current) return;
     const note: NoteDocument = { version: 1, id: makeId(), title: 'New discrete math note', content: emptyContent(), updatedAt: Date.now() };
     await writeLocalNote(note);
     syncRemoteNote(note);
@@ -1036,11 +1191,17 @@ export default function Home() {
     titleRef.current = note.title;
     editor?.commands.setContent(note.content, { emitUpdate: false });
     editor?.commands.focus('start');
+    setNoteMenuId(null);
   };
 
   const openNote = async (note: NoteDocument) => {
-    if (note.id === activeNoteRef.current) return;
+    if (note.id === activeNoteRef.current) {
+      setNoteMenuId(null);
+      return;
+    }
+    const operation = ++noteOperationRef.current;
     await flushSave();
+    if (operation !== noteOperationRef.current) return;
     setActiveNoteId(note.id);
     activeNoteRef.current = note.id;
     setTitle(note.title);
@@ -1048,22 +1209,107 @@ export default function Home() {
     editor?.commands.setContent(note.content, { emitUpdate: false });
     editor?.commands.focus('start');
     setSaveState('saved');
+    setNoteMenuId(null);
+  };
+
+  const getCurrentNoteSnapshot = (note: NoteDocument): NoteDocument => {
+    if (note.id !== activeNoteRef.current || !editorRef.current) return note;
+    return {
+      ...note,
+      title: titleRef.current.trim() || 'Untitled note',
+      content: editorRef.current.getJSON(),
+    };
+  };
+
+  const duplicateNote = async (source: NoteDocument) => {
+    const operation = ++noteOperationRef.current;
+    await flushSave();
+    if (operation !== noteOperationRef.current) return;
+    const currentSource = getCurrentNoteSnapshot(source);
+    const duplicate: NoteDocument = {
+      version: 1,
+      id: makeId(),
+      title: `${currentSource.title || 'Untitled note'} (copy)`,
+      content: cloneContentWithFreshMathIds(currentSource.content),
+      updatedAt: timestampNow(),
+    };
+    await writeLocalNote(duplicate);
+    syncRemoteNote(duplicate);
+    setNotes((current) => [duplicate, ...current.filter((note) => note.id !== duplicate.id)].sort((a, b) => b.updatedAt - a.updatedAt));
+    setActiveNoteId(duplicate.id);
+    activeNoteRef.current = duplicate.id;
+    setTitle(duplicate.title);
+    titleRef.current = duplicate.title;
+    editor?.commands.setContent(duplicate.content, { emitUpdate: false });
+    editor?.commands.focus('start');
+    setSaveState('saved');
+    setNoteMenuId(null);
+  };
+
+  const commitRename = async (note: NoteDocument) => {
+    if (renameNoteId !== note.id) return;
+    const nextTitle = renameValue.trim() || 'Untitled note';
+    setRenameNoteId(null);
+    setRenameValue('');
+    if (nextTitle === note.title) return;
+
+    const operation = ++noteOperationRef.current;
+    await flushSave();
+    if (operation !== noteOperationRef.current) return;
+    const renamed: NoteDocument = {
+      ...getCurrentNoteSnapshot(note),
+      title: nextTitle,
+      updatedAt: timestampNow(),
+    };
+    await writeLocalNote(renamed);
+    syncRemoteNote(renamed);
+    setNotes((current) => [renamed, ...current.filter((item) => item.id !== renamed.id)].sort((a, b) => b.updatedAt - a.updatedAt));
+    if (renamed.id === activeNoteRef.current) {
+      setTitle(renamed.title);
+      titleRef.current = renamed.title;
+    }
+  };
+
+  const beginRename = (note: NoteDocument) => {
+    setNoteMenuId(null);
+    setRenameNoteId(note.id);
+    setRenameValue(note.title);
+  };
+
+  const deleteNote = async (noteId: string) => {
+    const note = notes.find((item) => item.id === noteId);
+    if (!note) return;
+    if (!window.confirm(`Delete “${note.title}”?`)) return;
+    const operation = ++noteOperationRef.current;
+    await flushSave();
+    if (operation !== noteOperationRef.current) return;
+
+    await removeLocalNote(noteId);
+    syncRemoteDelete(noteId);
+    let remaining = notes.filter((item) => item.id !== noteId);
+    if (remaining.length === 0) {
+      const replacement: NoteDocument = { version: 1, id: makeId(), title: 'New discrete math note', content: emptyContent(), updatedAt: timestampNow() };
+      await writeLocalNote(replacement);
+      syncRemoteNote(replacement);
+      remaining = [replacement];
+    }
+    const next = remaining[0];
+    setNotes(remaining);
+    setNoteMenuId(null);
+    setRenameNoteId(null);
+    if (noteId === activeNoteRef.current) {
+      setActiveNoteId(next.id);
+      activeNoteRef.current = next.id;
+      setTitle(next.title);
+      titleRef.current = next.title;
+      editor?.commands.setContent(next.content, { emitUpdate: false });
+      editor?.commands.focus('start');
+    }
   };
 
   const deleteCurrentNote = async () => {
-    if (!activeNoteId || notes.length <= 1 || !window.confirm('Delete this note?')) return;
-    await flushSave();
-    const deletedNoteId = activeNoteId;
-    await removeLocalNote(deletedNoteId);
-    syncRemoteDelete(deletedNoteId);
-    const remaining = notes.filter((note) => note.id !== deletedNoteId);
-    const next = remaining[0];
-    setNotes(remaining);
-    setActiveNoteId(next.id);
-    activeNoteRef.current = next.id;
-    setTitle(next.title);
-    titleRef.current = next.title;
-    editor?.commands.setContent(next.content, { emitUpdate: false });
+    if (!activeNoteId) return;
+    await deleteNote(activeNoteId);
   };
 
   const toggleMath = useCallback(() => {
@@ -1117,22 +1363,36 @@ export default function Home() {
           </Select>
           <details className="settings-menu"><summary className="settings-trigger">⌘M</summary><div className="settings-popover"><span className="eyebrow">Keyboard</span><label htmlFor="math-shortcut">Math toggle shortcut</label><input id="math-shortcut" value={fallbackShortcut} onChange={(event) => updateFallbackShortcut(event.target.value)} onBlur={(event) => updateFallbackShortcut(event.target.value)} /><small>Use a format like Cmd/Ctrl+Shift+M as an alternate math toggle.</small></div></details>
           <Button type="button" variant="outline" size="sm" onClick={exportCurrentNote} title="Download Markdown with LaTeX"><Download size={15} /> Export</Button>
-          <Button type="button" variant="ghost" size="icon-sm" onClick={() => setSidebarOpen((open) => !open)} aria-label="Toggle notes" title="Toggle notes"><BookOpen size={17} /></Button>
+          <Button type="button" variant="ghost" size="icon-sm" onClick={() => setSidebarOpen((open) => !open)} aria-label={sidebarOpen ? 'Hide notes sidebar' : 'Show notes sidebar'} title={sidebarOpen ? 'Hide notes sidebar' : 'Show notes sidebar'}><BookOpen size={17} /></Button>
         </div>
       </header>
 
-      <div className="app-layout">
-        {sidebarOpen && <aside className="note-sidebar">
-          <div className="sidebar-heading"><div><span className="eyebrow">Your workspace</span><h2>Notes</h2></div><Button type="button" variant="ghost" size="icon-sm" onClick={createNote} aria-label="New note" title="New note"><Plus size={17} /></Button></div>
-          <div className="note-list">{notes.map((note) => <button type="button" key={note.id} className={`note-list-item ${note.id === activeNoteId ? 'is-current' : ''}`} onClick={() => void openNote(note)}><span className="note-list-icon"><FileText size={15} /></span><span className="note-list-copy"><strong>{note.title}</strong><small>{new Date(note.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</small></span></button>)}</div>
+      <div className={`app-layout ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
+        {!sidebarOpen && <button type="button" className="sidebar-reopen" onClick={() => setSidebarOpen(true)} aria-label="Show notes sidebar" title="Show notes sidebar"><ChevronRight size={16} /></button>}
+        {sidebarOpen && <>
+          <button type="button" className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Close notes sidebar" />
+          <aside className="note-sidebar">
+          <div className="sidebar-heading"><div><span className="eyebrow">Your workspace</span><h2>Notes</h2></div><div className="sidebar-heading-actions"><Button type="button" variant="ghost" size="icon-sm" onClick={() => void createNote()} aria-label="New note" title="New note"><Plus size={17} /></Button><Button type="button" variant="ghost" size="icon-sm" onClick={() => setSidebarOpen(false)} aria-label="Hide notes sidebar" title="Hide notes sidebar"><ChevronLeft size={17} /></Button></div></div>
+          <div className="note-list">{notes.map((note) => {
+            const isCurrent = note.id === activeNoteId;
+            const isRenaming = note.id === renameNoteId;
+            return <div key={note.id} className={`note-list-item ${isCurrent ? 'is-current' : ''}`}>
+              {isRenaming ? <div className="note-rename-row"><span className="note-list-icon"><FileText size={15} /></span><input className="note-rename-input" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onBlur={() => void commitRename(note)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void commitRename(note); } if (event.key === 'Escape') { event.preventDefault(); setRenameNoteId(null); } }} aria-label={`Rename ${note.title}`} /></div> : <button type="button" className="note-open-button" onClick={() => void openNote(note)} aria-current={isCurrent ? 'page' : undefined}><span className="note-list-icon"><FileText size={15} /></span><span className="note-list-copy"><strong>{note.title}</strong><small>{formatNoteDate(note.updatedAt)}</small></span></button>}
+              <div className="note-item-actions">
+                <button type="button" className="note-actions-trigger" onClick={() => setNoteMenuId((current) => current === note.id ? null : note.id)} aria-label={`More actions for ${note.title}`} aria-haspopup="menu" aria-expanded={noteMenuId === note.id}><MoreHorizontal size={16} /></button>
+                {noteMenuId === note.id && <div className="note-actions-menu" role="menu"><button type="button" role="menuitem" onClick={() => beginRename(note)}><Pencil size={14} /> Rename</button><button type="button" role="menuitem" onClick={() => void duplicateNote(note)}><Copy size={14} /> Duplicate</button><button type="button" role="menuitem" className="is-destructive" onClick={() => void deleteNote(note.id)}><Trash2 size={14} /> Delete</button></div>}
+              </div>
+            </div>;
+          })}</div>
           <div className="sidebar-footer"><span className="local-lock"><CheckCircle2 size={14} /> Stored on this device</span><span className="sidebar-tip">Tip: press <kbd>/</kbd> to enter math</span></div>
-        </aside>}
+          </aside>
+        </>}
 
         <section className="workspace">
           <div className="workspace-bar"><div className="breadcrumb"><span>MathPad</span><span>/</span><span>{activeNote?.title || 'New note'}</span></div><div className="workspace-hints"><span className={`mode-pill mode-${mode}`}><span className="mode-dot" /> {mode === 'math' ? 'Math' : 'Text'}</span><span className={`sync-pill sync-${syncState}`} aria-live="polite" title={syncState === 'disabled' ? 'Add DATABASE_URL to your Vercel project and redeploy to enable Neon sync.' : undefined}><span className="save-dot" />{syncStatusText}</span><span className="hint-chip"><kbd>/</kbd> math</span><span className="hint-chip"><kbd>+</kbd> blocks</span><span className="hint-chip"><kbd>\\</kbd> symbols</span></div></div>
 
           <div className="paper-wrap"><article className="paper">
-            <div className="paper-topline"><input className="note-title-input" value={title} onChange={(event) => { setTitle(event.target.value); titleRef.current = event.target.value; queueSave(); }} aria-label="Note title" placeholder="Untitled note" /><div className="paper-actions"><IconButton label="Undo" onClick={() => editor?.chain().focus().undo().run()} disabled={!editor?.can().undo()}><Undo2 size={16} /></IconButton><IconButton label="Redo" onClick={() => editor?.chain().focus().redo().run()} disabled={!editor?.can().redo()}><Redo2 size={16} /></IconButton><IconButton label="Print or save PDF" onClick={() => window.print()}><FileText size={16} /></IconButton><IconButton label="Delete note" onClick={() => void deleteCurrentNote()} disabled={notes.length <= 1}><Trash2 size={16} /></IconButton></div></div>
+            <div className="paper-topline"><input className="note-title-input" value={title} onChange={(event) => { setTitle(event.target.value); titleRef.current = event.target.value; queueSave(); }} aria-label="Note title" placeholder="Untitled note" /><div className="paper-actions"><IconButton label="Undo" onClick={() => editor?.chain().focus().undo().run()} disabled={!editor?.can().undo()}><Undo2 size={16} /></IconButton><IconButton label="Redo" onClick={() => editor?.chain().focus().redo().run()} disabled={!editor?.can().redo()}><Redo2 size={16} /></IconButton><IconButton label="Print or save PDF" onClick={() => window.print()}><FileText size={16} /></IconButton><IconButton label="Delete note" onClick={() => void deleteCurrentNote()}><Trash2 size={16} /></IconButton></div></div>
 
             <div className="editor-toolbar" aria-label="Formatting toolbar"><span className="toolbar-label">Write</span><IconButton label="Bold (Cmd/Ctrl+B)" active={editor?.isActive('bold')} onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={16} /></IconButton><IconButton label="Italic (Cmd/Ctrl+I)" active={editor?.isActive('italic')} onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={16} /></IconButton><IconButton label="Underline (Cmd/Ctrl+U)" active={editor?.isActive('underline')} onClick={() => editor?.chain().focus().toggleUnderline().run()}><UnderlineIcon size={16} /></IconButton><IconButton label="Strikethrough" active={editor?.isActive('strike')} onClick={() => editor?.chain().focus().toggleStrike().run()}><Strikethrough size={16} /></IconButton><IconButton label="Inline code" active={editor?.isActive('code')} onClick={() => editor?.chain().focus().toggleCode().run()}><Code2 size={16} /></IconButton><span className="toolbar-divider" /><span className="toolbar-label">Structure</span><IconButton label="Bullet list" active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={16} /></IconButton><IconButton label="Numbered list" active={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={16} /></IconButton><IconButton label="Checklist" active={editor?.isActive('taskList')} onClick={() => editor?.chain().focus().toggleTaskList().run()}><ListChecks size={16} /></IconButton><IconButton label="Blockquote" active={editor?.isActive('blockquote')} onClick={() => editor?.chain().focus().toggleBlockquote().run()}><Quote size={16} /></IconButton><IconButton label="Heading 3" active={editor?.isActive('heading', { level: 3 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}><Heading3 size={16} /></IconButton><span className="toolbar-divider" /><IconButton label="Inline math (/ or Cmd/Ctrl+Shift+M)" active={mode === 'math'} onClick={toggleMath}><Sigma size={17} /></IconButton><IconButton label="Insert block menu" onClick={() => { setPalette('blocks'); setPaletteQuery(''); }}><Plus size={17} /></IconButton></div>
 
