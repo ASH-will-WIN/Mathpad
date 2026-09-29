@@ -270,6 +270,22 @@
 .note-block-content > p:last-child { margin-bottom: 7px; }
 .note-block-divider { display: none; }
 
+.table-picker-anchor { position: relative; display: inline-flex; }
+.table-picker { position: absolute; z-index: 30; top: 39px; left: 0; width: 246px; margin: 0; padding: 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--popover); color: var(--popover-foreground); box-shadow: var(--shadow); }
+.table-picker-title strong, .table-picker-title small { display: block; }
+.table-picker-title strong { font-size: 12px; }
+.table-picker-title small { margin-top: 3px; color: var(--ink-soft); font-size: 10px; }
+.table-picker-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 9px; }
+.table-picker-fields label { color: var(--ink-soft); font-size: 10px; }
+.table-picker-fields input { display: block; width: 100%; margin-top: 4px; border: 1px solid var(--input); border-radius: 5px; background: var(--paper); color: var(--ink); padding: 6px 7px; font-size: 12px; }
+.table-picker-fields input:focus { border-color: var(--blue); outline: 0; box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 15%, transparent); }
+.table-header-toggle { display: flex; align-items: center; gap: 6px; color: var(--ink-soft); font-size: 10px; }
+.table-header-toggle input { accent-color: var(--blue); }
+.table-presets { display: flex; align-items: center; gap: 4px; margin: 12px 0; }
+.table-presets span { margin-right: 2px; color: var(--ink-soft); font-size: 9px; }
+.table-presets button { border: 1px solid var(--border); border-radius: 5px; background: var(--paper); color: var(--ink-soft); padding: 4px 6px; font-size: 9px; cursor: pointer; }
+.table-presets button:hover { border-color: var(--blue); color: var(--accent-foreground); background: var(--blue-soft); }
+
 .palette-panel { position: absolute; right: 0; top: 15px; z-index: 20; width: min(390px, calc(100% - 10px)); margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: var(--popover); color: var(--ink); box-shadow: 0 18px 45px rgba(32, 46, 70, .18); }
 .palette-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 14px 9px; border-bottom: 1px solid var(--border); }
 .palette-header strong { display: block; color: var(--ink); font-size: 13px; margin-top: 4px; }

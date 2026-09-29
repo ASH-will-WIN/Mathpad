@@ -21,6 +21,7 @@ import {
   BookOpen,
   CheckCircle2,
   Code2,
+  Columns3,
   Copy,
   ChevronLeft,
   ChevronRight,
@@ -39,6 +40,7 @@ import {
   Plus,
   Quote,
   Redo2,
+  Rows3,
   Sigma,
   Strikethrough,
   Sun,
@@ -115,7 +117,7 @@ type MathPadClipboardPayload = {
 
 function normalizeMathShortcuts(latex: string) {
   const withExponents = latex.replace(/(^|[^A-Za-z\\])([a-z])(\d+)/g, (_match, prefix: string, letter: string, digits: string) => `${prefix}${letter}${digits.length === 1 ? `^${digits}` : `^{${digits}}`}`);
-  const withLogicShortcuts = withExponents.replace(/(^|[^A-Za-z\\])(eq|then)(?=$|[^A-Za-z])/g, (_match, prefix: string, shortcut: string) => `${prefix}${shortcut === 'eq' ? '\\equiv' : '\\implies'}`);
+  const withLogicShortcuts = withExponents.replace(/(^|[^A-Za-z\\])(eq|then)(?=$|[^A-Za-z])/g, (_match, prefix: string, shortcut: string) => `${prefix}${shortcut === 'eq' ? '\\equiv' : '\\to'}`);
   const withNegation = withLogicShortcuts.replace(/(^|[^A-Za-z\\])(?:neg|not)(?=\s|$)/g, (_match, prefix: string) => `${prefix}\\neg`);
   const protectedTokens: string[] = [];
   const masked = withNegation.replace(/\\(?:mathbb|Bbb|mathbf|mathrm)\{[NZQRC]\}/g, (token) => {
@@ -305,6 +307,11 @@ function formatNoteDate(timestamp: number) {
     && date.getDate() === today.getDate();
   if (isToday) return `Today · ${date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
+}
+
+function clampTableDimension(value: string) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? Math.min(20, Math.max(1, parsed)) : 1;
 }
 
 const starterContent: JSONContent = {
@@ -567,7 +574,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
       field.inlineShortcuts = Object.fromEntries([
         ...Object.entries(field.inlineShortcuts ?? {}).filter(([shortcut]) => !disabledDoubledSetShortcuts.includes(shortcut)),
         ['eq', '\\equiv'],
-        ['t' + 'hen', '\\implies'],
+        ['t' + 'hen', '\\to'],
       ]);
       field.mathModeSpace = '\\:';
       let wrapFrame: number | null = null;
@@ -646,6 +653,28 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
         }, 0);
       };
       const handleKeyDown = (event: KeyboardEvent) => {
+        if (event.key === 'Enter' && display) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+
+          const position = typeof getPos === 'function' ? getPos() : undefined;
+          if (position === undefined) return;
+
+          const id = makeId();
+          const inserted = editor
+            .chain()
+            .focus()
+            .insertContentAt(position + 1, [
+              { type: 'mathBlock', attrs: { id, latex: '' } },
+              { type: 'paragraph' },
+            ])
+            .run();
+
+          if (inserted) requestMathFocus(id);
+          return;
+        }
+
         if (event.key === 'Tab' || event.key === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
@@ -713,7 +742,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
       cleanup?.();
       fieldRef.current = null;
     };
-  }, [display, exitMath, node.attrs.id, updateAttributes]);
+  }, [display, editor, exitMath, getPos, node.attrs.id, updateAttributes]);
 
   useEffect(() => {
     if (fieldRef.current && fieldRef.current.value !== (node.attrs.latex ?? '') && document.activeElement !== fieldRef.current) fieldRef.current.value = node.attrs.latex ?? '';
@@ -794,7 +823,7 @@ const blockItems: PaletteItem[] = [
   { id: 'definition', label: 'Definition', detail: 'Give a concept a clear name and meaning', icon: '◇', action: { kind: 'noteBlock', blockKind: 'definition' } },
   { id: 'cases', label: 'Cases', detail: 'Start a piecewise or case-based expression', icon: '{}', action: { kind: 'mathBlock', latex: '\\begin{cases} & \\text{if } \\\\ & \\text{otherwise} \\end{cases}' } },
   { id: 'matrix', label: 'Matrix', detail: 'Start a small matrix or array', icon: '▦', action: { kind: 'mathBlock', latex: '\\begin{bmatrix} & \\\\ & \\end{bmatrix}' } },
-  { id: 'table', label: 'Table', detail: 'Insert an editable 3 × 3 table', shortcut: 'table', icon: '▤', action: { kind: 'table' } },
+  { id: 'table', label: 'Table', detail: 'Choose rows, columns, and a header row', icon: '▤', action: { kind: 'table' } },
   { id: 'divider', label: 'Divider', detail: 'Separate sections of your notes', icon: '—', action: { kind: 'noteBlock', blockKind: 'divider' } },
 ];
 
@@ -834,6 +863,10 @@ export default function Home() {
   const [syncState, setSyncState] = useState<SyncState>('checking');
   const [palette, setPalette] = useState<PaletteKind>(null);
   const [paletteQuery, setPaletteQuery] = useState('');
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [tableRows, setTableRows] = useState(3);
+  const [tableColumns, setTableColumns] = useState(3);
+  const [tableWithHeader, setTableWithHeader] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [noteMenuId, setNoteMenuId] = useState<string | null>(null);
   const [renameNoteId, setRenameNoteId] = useState<string | null>(null);
@@ -849,6 +882,7 @@ export default function Home() {
   const remoteSyncEnabledRef = useRef<boolean | null>(null);
   const remoteSyncChainRef = useRef(Promise.resolve());
   const paletteInputRef = useRef<HTMLInputElement>(null);
+  const tableRowsInputRef = useRef<HTMLInputElement>(null);
   const resolvedTheme = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
 
   useEffect(() => {
@@ -928,6 +962,23 @@ export default function Home() {
     if (!palette) return;
     window.requestAnimationFrame(() => paletteInputRef.current?.focus());
   }, [palette]);
+
+  useEffect(() => {
+    if (!tablePickerOpen) return;
+    const focusTimer = window.requestAnimationFrame(() => {
+      tableRowsInputRef.current?.focus();
+      tableRowsInputRef.current?.select();
+    });
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      if (!target?.closest('.table-picker-anchor')) setTablePickerOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => {
+      window.cancelAnimationFrame(focusTimer);
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+    };
+  }, [tablePickerOpen]);
 
   const queueRemoteOperation = useCallback((operation: () => Promise<void>) => {
     if (remoteSyncEnabledRef.current === false) return;
@@ -1086,14 +1137,25 @@ export default function Home() {
               break;
             }
           }
-          // Tab is indentation only inside a list. Outside a list, leave the
-          // browser's normal focus behavior alone instead of hijacking it.
-          if (!listItem) return false;
-          const commandHandled = event.shiftKey
-            ? editorRef.current?.commands.liftListItem(listItem)
-            : editorRef.current?.commands.sinkListItem(listItem);
           event.preventDefault();
-          return commandHandled || true;
+          if (listItem) {
+            const commandHandled = event.shiftKey
+              ? editorRef.current?.commands.liftListItem(listItem)
+              : editorRef.current?.commands.sinkListItem(listItem);
+            return commandHandled || true;
+          }
+
+          const textblock = view.state.selection.$from.parent;
+          if (!textblock.isTextblock) return true;
+          const indent = '\u00a0\u00a0\u00a0\u00a0';
+          const blockStart = view.state.selection.$from.start(view.state.selection.$from.depth);
+          const leadingText = view.state.doc.textBetween(blockStart, blockStart + indent.length, '\n', '\n');
+          if (event.shiftKey) {
+            if (leadingText === indent) editorRef.current?.chain().focus().deleteRange({ from: blockStart, to: blockStart + indent.length }).run();
+          } else {
+            editorRef.current?.chain().focus().insertContentAt(blockStart, indent).run();
+          }
+          return true;
         }
         return false;
       },
@@ -1207,21 +1269,37 @@ export default function Home() {
     focusMath(id);
   }, [editor, focusMath]);
 
+  const openTablePicker = useCallback(() => {
+    setPalette(null);
+    setPaletteQuery('');
+    setTablePickerOpen(true);
+  }, []);
+
+  const insertTable = useCallback(() => {
+    if (!editor) return;
+    editor.chain().focus().insertTable({ rows: tableRows, cols: tableColumns, withHeaderRow: tableWithHeader }).run();
+    setTablePickerOpen(false);
+    editor.commands.focus();
+  }, [editor, tableColumns, tableRows, tableWithHeader]);
+
   const insertBlock = useCallback((kind: string) => {
     if (!editor) return;
     if (kind === 'divider') editor.chain().focus().setHorizontalRule().run();
-    else if (kind === 'table') editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+    else if (kind === 'table') {
+      openTablePicker();
+      return;
+    }
     else editor.chain().focus().insertContent({ type: 'noteBlock', attrs: { kind, title: kind[0].toUpperCase() + kind.slice(1) }, content: [{ type: 'paragraph' }] }).run();
     setPalette(null);
     setPaletteQuery('');
     editor.commands.focus();
-  }, [editor]);
+  }, [editor, openTablePicker]);
 
   const selectPaletteItem = (item: PaletteItem) => {
     if (item.action.kind === 'inlineMath') insertMath(false, item.action.latex ?? '');
     if (item.action.kind === 'mathBlock') insertMath(true, item.action.latex ?? '');
     if (item.action.kind === 'noteBlock') insertBlock(item.action.blockKind ?? 'proof');
-    if (item.action.kind === 'table') insertBlock('table');
+    if (item.action.kind === 'table') openTablePicker();
   };
 
   const createNote = async () => {
@@ -1441,12 +1519,12 @@ export default function Home() {
           <div className="paper-wrap"><article className="paper">
             <div className="paper-topline"><input className="note-title-input" value={title} onChange={(event) => { setTitle(event.target.value); titleRef.current = event.target.value; queueSave(); }} aria-label="Note title" placeholder="Untitled note" /><div className="paper-actions"><IconButton label="Undo" onClick={() => editor?.chain().focus().undo().run()} disabled={!editor?.can().undo()}><Undo2 size={16} /></IconButton><IconButton label="Redo" onClick={() => editor?.chain().focus().redo().run()} disabled={!editor?.can().redo()}><Redo2 size={16} /></IconButton><IconButton label="Print or save PDF" onClick={() => window.print()}><FileText size={16} /></IconButton><IconButton label="Delete note" onClick={() => void deleteCurrentNote()}><Trash2 size={16} /></IconButton></div></div>
 
-            <div className="editor-toolbar" aria-label="Formatting toolbar"><span className="toolbar-label">Write</span><IconButton label="Bold (Cmd/Ctrl+B)" active={editor?.isActive('bold')} onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={16} /></IconButton><IconButton label="Italic (Cmd/Ctrl+I)" active={editor?.isActive('italic')} onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={16} /></IconButton><IconButton label="Underline (Cmd/Ctrl+U)" active={editor?.isActive('underline')} onClick={() => editor?.chain().focus().toggleUnderline().run()}><UnderlineIcon size={16} /></IconButton><IconButton label="Strikethrough" active={editor?.isActive('strike')} onClick={() => editor?.chain().focus().toggleStrike().run()}><Strikethrough size={16} /></IconButton><IconButton label="Inline code" active={editor?.isActive('code')} onClick={() => editor?.chain().focus().toggleCode().run()}><Code2 size={16} /></IconButton><span className="toolbar-divider" /><span className="toolbar-label">Structure</span><IconButton label="Bullet list" active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={16} /></IconButton><IconButton label="Numbered list" active={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={16} /></IconButton><IconButton label="Checklist" active={editor?.isActive('taskList')} onClick={() => editor?.chain().focus().toggleTaskList().run()}><ListChecks size={16} /></IconButton><IconButton label="Blockquote" active={editor?.isActive('blockquote')} onClick={() => editor?.chain().focus().toggleBlockquote().run()}><Quote size={16} /></IconButton><IconButton label="Heading 3" active={editor?.isActive('heading', { level: 3 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}><Heading3 size={16} /></IconButton><IconButton label="Insert 3×3 table" onClick={() => insertBlock('table')}><Table2 size={16} /></IconButton><span className="toolbar-divider" /><IconButton label="Inline math (/ or Cmd/Ctrl+Shift+M)" active={mode === 'math'} onClick={toggleMath}><Sigma size={17} /></IconButton><IconButton label="Insert block menu" onClick={() => { setPalette('blocks'); setPaletteQuery(''); }}><Plus size={17} /></IconButton></div>
+            <div className="editor-toolbar" aria-label="Formatting toolbar"><span className="toolbar-label">Write</span><IconButton label="Bold (Cmd/Ctrl+B)" active={editor?.isActive('bold')} onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={16} /></IconButton><IconButton label="Italic (Cmd/Ctrl+I)" active={editor?.isActive('italic')} onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={16} /></IconButton><IconButton label="Underline (Cmd/Ctrl+U)" active={editor?.isActive('underline')} onClick={() => editor?.chain().focus().toggleUnderline().run()}><UnderlineIcon size={16} /></IconButton><IconButton label="Strikethrough" active={editor?.isActive('strike')} onClick={() => editor?.chain().focus().toggleStrike().run()}><Strikethrough size={16} /></IconButton><IconButton label="Inline code" active={editor?.isActive('code')} onClick={() => editor?.chain().focus().toggleCode().run()}><Code2 size={16} /></IconButton><span className="toolbar-divider" /><span className="toolbar-label">Structure</span><IconButton label="Bullet list" active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={16} /></IconButton><IconButton label="Numbered list" active={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={16} /></IconButton><IconButton label="Checklist" active={editor?.isActive('taskList')} onClick={() => editor?.chain().focus().toggleTaskList().run()}><ListChecks size={16} /></IconButton><IconButton label="Blockquote" active={editor?.isActive('blockquote')} onClick={() => editor?.chain().focus().toggleBlockquote().run()}><Quote size={16} /></IconButton><IconButton label="Heading 3" active={editor?.isActive('heading', { level: 3 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}><Heading3 size={16} /></IconButton><div className="table-picker-anchor"><IconButton label="Insert table" onClick={openTablePicker}><Table2 size={16} /></IconButton>{tablePickerOpen && <dialog open className="table-picker" aria-label="Choose table size" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); setTablePickerOpen(false); editor?.commands.focus(); } }}><div className="table-picker-title"><strong>Insert table</strong><small>Choose the starting size</small></div><div className="table-picker-fields"><label>Rows<input ref={tableRowsInputRef} type="number" min="1" max="20" value={tableRows} onChange={(event) => setTableRows(clampTableDimension(event.target.value))} /></label><label>Columns<input type="number" min="1" max="20" value={tableColumns} onChange={(event) => setTableColumns(clampTableDimension(event.target.value))} /></label></div><label className="table-header-toggle"><input type="checkbox" checked={tableWithHeader} onChange={(event) => setTableWithHeader(event.target.checked)} /> Header row</label><div className="table-presets"><span>Presets</span><button type="button" onClick={() => { setTableRows(2); setTableColumns(2); }}>2 × 2</button><button type="button" onClick={() => { setTableRows(3); setTableColumns(3); }}>3 × 3</button><button type="button" onClick={() => { setTableRows(4); setTableColumns(6); }}>4 × 6</button></div><Button type="button" size="sm" onClick={insertTable}>Insert table</Button></dialog>}</div>{editor?.isActive('table') && <><span className="toolbar-divider" /><span className="toolbar-label">Table</span><IconButton label="Add row below" onClick={() => editor.chain().focus().addRowAfter().run()}><Rows3 size={16} /></IconButton><IconButton label="Delete current row" onClick={() => editor.chain().focus().deleteRow().run()}><Rows3 size={16} /></IconButton><IconButton label="Add column after" onClick={() => editor.chain().focus().addColumnAfter().run()}><Columns3 size={16} /></IconButton><IconButton label="Delete current column" onClick={() => editor.chain().focus().deleteColumn().run()}><Columns3 size={16} /></IconButton><IconButton label="Delete table" onClick={() => editor.chain().focus().deleteTable().run()}><Trash2 size={16} /></IconButton></>}<span className="toolbar-divider" /><IconButton label="Inline math (/ or Cmd/Ctrl+Shift+M)" active={mode === 'math'} onClick={toggleMath}><Sigma size={17} /></IconButton><IconButton label="Insert block menu" onClick={() => { setTablePickerOpen(false); setPalette('blocks'); setPaletteQuery(''); }}><Plus size={17} /></IconButton></div>
 
             <div className="editor-shell">{palette && <dialog open className="palette-panel" aria-label={palette === 'blocks' ? 'Blocks and structure' : 'Math symbols'} onKeyDown={(event) => { if (event.key === 'Escape') { setPalette(null); editor?.commands.focus(); } }}><div className="palette-header"><div><span className="eyebrow">Quick insert</span><strong>{palette === 'blocks' ? 'Blocks & structure' : 'Math symbols'}</strong></div><Button type="button" variant="ghost" size="icon-xs" onClick={() => { setPalette(null); editor?.commands.focus(); }} aria-label="Close palette"><X size={15} /></Button></div><Command value={paletteQuery} onValueChange={setPaletteQuery} shouldFilter><CommandInput ref={paletteInputRef} placeholder={palette === 'blocks' ? 'Search blocks…' : 'Search symbols…'} /><CommandList><CommandEmpty>No matching insert.</CommandEmpty><CommandGroup heading={palette === 'blocks' ? 'Insert' : 'Discrete math first'}>{filteredItems.map((item) => <CommandItem key={item.id} value={`${item.label} ${item.detail} ${item.shortcut ?? ''}`} onSelect={() => selectPaletteItem(item)}><span className="palette-icon">{item.icon}</span><span className="palette-copy"><strong>{item.label}</strong><small>{item.detail}</small></span>{item.shortcut && <CommandShortcut>{item.shortcut}</CommandShortcut>}</CommandItem>)}</CommandGroup></CommandList></Command></dialog>}
               <EditorContent editor={editor} />
             </div>
-            <footer className="paper-footer"><span>Press <kbd>/</kbd> for math · <kbd>Tab</kbd> exits math or indents lists · <kbd>Enter</kbd> continues lists</span><span className="footer-mark">MathPad · local-first</span></footer>
+            <footer className="paper-footer"><span>Press <kbd>/</kbd> for math · <kbd>Tab</kbd> exits math or indents text/lists · <kbd>Enter</kbd> continues lists</span><span className="footer-mark">MathPad · local-first</span></footer>
           </article></div>
         </section>
       </div>
