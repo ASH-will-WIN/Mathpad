@@ -219,6 +219,13 @@
 .note-editor-content ul:not([data-type='taskList']) ul ul { list-style-type: square; }
 .note-editor-content li { padding-left: 5px; margin: 4px 0; }
 .note-editor-content li::marker { color: var(--blue); font-weight: 700; }
+.note-editor-content .tableWrapper { overflow-x: auto; margin: 20px 0; }
+.note-editor-content table { width: 100%; min-width: 420px; border-collapse: collapse; table-layout: fixed; }
+.note-editor-content th, .note-editor-content td { min-width: 90px; border: 1px solid var(--border); padding: 9px 11px; vertical-align: top; text-align: left; }
+.note-editor-content th { background: var(--blue-soft); color: var(--accent-foreground); font-weight: 750; }
+.note-editor-content td { background: color-mix(in srgb, var(--paper) 92%, var(--muted)); }
+.note-editor-content th p, .note-editor-content td p { margin: 0; }
+.note-editor-content .selectedCell { background: color-mix(in srgb, var(--blue-soft) 70%, var(--paper)); }
 .note-editor-content ul[data-type='taskList'] { list-style: none; padding-left: 0; }
 .note-editor-content ul[data-type='taskList'] > li { display: flex; gap: 9px; align-items: flex-start; padding-left: 0; }
 .note-editor-content ul[data-type='taskList'] > li > label { padding-top: 4px; }
