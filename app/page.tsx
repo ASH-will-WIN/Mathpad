@@ -413,6 +413,21 @@ function contentToMarkdown(content: JSONContent[]) {
   return nodeToMarkdown({ type: 'doc', content }).trim();
 }
 
+function mathClipboardText(latex: string, display: boolean) {
+  return display ? `\\[\n${latex}\n\\]` : `\\(${latex}\\)`;
+}
+
+function addMathFallbackToClipboardHTML(dom: HTMLElement) {
+  const copy = dom.cloneNode(true) as HTMLElement;
+  copy.querySelectorAll<HTMLElement>('[data-math-node]').forEach((element) => {
+    const latex = element.getAttribute('data-latex') ?? '';
+    const display = element.getAttribute('data-math-node') === 'block';
+    element.textContent = mathClipboardText(latex, display);
+    element.setAttribute('aria-label', display ? `Display math: ${latex}` : `Math: ${latex}`);
+  });
+  return copy.innerHTML;
+}
+
 function parseMathPadClipboardPayload(value: string): MathPadClipboardPayload | null {
   try {
     const parsed = JSON.parse(value) as Partial<MathPadClipboardPayload>;
@@ -464,6 +479,15 @@ function markdownToContent(markdown: string): JSONContent {
   while (index < lines.length) {
     const line = lines[index];
     if (!line.trim()) { index += 1; continue; }
+    const startsDisplayMath = /^\s*\\\[\s*$/.test(line) || /^\s*\$\$\s*$/.test(line);
+    if (startsDisplayMath) {
+      const closing = lines.findIndex((candidate, candidateIndex) => candidateIndex > index && (/^\s*\\\]\s*$/.test(candidate) || /^\s*\$\$\s*$/.test(candidate)));
+      if (closing > index) {
+        content.push({ type: 'mathBlock', attrs: { id: makeId(), latex: lines.slice(index + 1, closing).join('\n') } });
+        index = closing + 1;
+        continue;
+      }
+    }
     const tableSeparator = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
     if (/^\s*\|/.test(line) && tableSeparator.test(lines[index + 1] ?? '')) {
       const headerCells = markdownTableCells(line);
@@ -1081,6 +1105,7 @@ export default function Home() {
           const content = slice.content.toJSON() as JSONContent[];
           const serialized = view.serializeForClipboard(slice);
           const fallbackText = contentToMarkdown(content) || serialized.text;
+          const fallbackHTML = addMathFallbackToClipboardHTML(serialized.dom);
 
           clipboard.clearData();
           try {
@@ -1094,12 +1119,14 @@ export default function Home() {
             // Some browsers reject custom clipboard MIME types. HTML and text
             // remain available as the portable fallbacks.
           }
-          clipboard.setData('text/html', serialized.dom.innerHTML);
+          clipboard.setData('text/html', fallbackHTML);
           clipboard.setData('text/plain', fallbackText);
           try {
             clipboard.setData('text/markdown', fallbackText);
+            clipboard.setData('text/latex', fallbackText);
+            clipboard.setData('application/x-tex', fallbackText);
           } catch {
-            // text/markdown is an optional browser clipboard flavor.
+            // Markdown and LaTeX are optional browser clipboard flavors.
           }
           clipboardEvent.preventDefault();
           return true;
@@ -1172,7 +1199,9 @@ export default function Home() {
       },
       handlePaste: (_view, event) => {
         const mathPadClipboard = event.clipboardData?.getData(MATHPAD_CLIPBOARD_TYPE);
-        const markdown = event.clipboardData?.getData('text/markdown');
+        const markdown = event.clipboardData?.getData('text/markdown')
+          || event.clipboardData?.getData('text/latex')
+          || event.clipboardData?.getData('application/x-tex');
         const activeEditor = editorRef.current;
         if (!activeEditor) return false;
         const payload = mathPadClipboard ? parseMathPadClipboardPayload(mathPadClipboard) : null;
