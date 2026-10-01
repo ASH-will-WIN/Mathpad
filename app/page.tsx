@@ -187,6 +187,10 @@ function matchesShortcut(event: KeyboardEvent, shortcut: string) {
   return wantsAlt === event.altKey && wantsShift === event.shiftKey;
 }
 
+function isTabKey(event: KeyboardEvent) {
+  return event.key === 'Tab' || event.code === 'Tab';
+}
+
 function requestMathFocus(id: string, position: MathFocusPosition = 'end') {
   pendingMathFocusId = id;
   pendingMathFocusPosition = position;
@@ -710,22 +714,22 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
           return;
         }
 
-        if (event.key === 'Tab' || event.key === 'Escape') {
+        if (isTabKey(event) || event.key === 'Escape') {
           event.preventDefault();
           event.stopPropagation();
           event.stopImmediatePropagation();
-          exitMath(event.key === 'Tab' && event.shiftKey ? 'before' : 'after');
+          exitMath(isTabKey(event) && event.shiftKey ? 'before' : 'after');
         }
       };
       const handleDocumentKeyDown = (event: KeyboardEvent) => {
-        if (event.key !== 'Tab' && event.key !== 'Escape') return;
+        if (!isTabKey(event) && event.key !== 'Escape') return;
         if (!field) return;
         const path = event.composedPath();
         if (document.activeElement !== field && !path.includes(field)) return;
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        exitMath(event.key === 'Tab' && event.shiftKey ? 'before' : 'after');
+        exitMath(isTabKey(event) && event.shiftKey ? 'before' : 'after');
       };
       const handleToggle = () => {
         if (document.activeElement === field) exitMath('after');
@@ -742,7 +746,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
       field.addEventListener('input', handleInput);
       field.addEventListener('focus', handleFocus);
       field.addEventListener('blur', handleBlur);
-      field.addEventListener('keydown', handleKeyDown);
+      field.addEventListener('keydown', handleKeyDown, true);
       // MathLive renders its editing surface inside a shadow root. Capture
       // here so Tab cannot fall through to browser focus navigation before
       // the field's own keydown listener sees it.
@@ -761,7 +765,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
         field.removeEventListener('input', handleInput);
         field.removeEventListener('focus', handleFocus);
         field.removeEventListener('blur', handleBlur);
-        field.removeEventListener('keydown', handleKeyDown);
+        field.removeEventListener('keydown', handleKeyDown, true);
         document.removeEventListener('keydown', handleDocumentKeyDown, true);
         window.removeEventListener('mathpad:toggle-math', handleToggle);
         window.removeEventListener('mathpad:focus-math', handleRequestedFocus);
@@ -1158,13 +1162,15 @@ export default function Home() {
           setPaletteQuery('');
           return true;
         }
-        if (event.key === 'Tab' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-          if (editorRef.current?.isActive('table')) {
+        if (isTabKey(event) && !event.metaKey && !event.ctrlKey && !event.altKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          const activeEditor = editorRef.current;
+          if (activeEditor && selectionIsInTable(activeEditor)) {
             const moved = event.shiftKey
-              ? editorRef.current.commands.goToPreviousCell()
-              : editorRef.current.commands.goToNextCell();
-            if (!moved && !event.shiftKey) editorRef.current.chain().addRowAfter().goToNextCell().run();
-            event.preventDefault();
+              ? activeEditor.commands.goToPreviousCell()
+              : activeEditor.commands.goToNextCell();
+            if (!moved && !event.shiftKey) activeEditor.chain().addRowAfter().goToNextCell().run();
             return true;
           }
           let listItem: 'taskItem' | 'listItem' | null = null;
@@ -1175,7 +1181,6 @@ export default function Home() {
               break;
             }
           }
-          event.preventDefault();
           if (listItem) {
             const commandHandled = event.shiftKey
               ? editorRef.current?.commands.liftListItem(listItem)
