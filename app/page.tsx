@@ -175,6 +175,32 @@ const Subscript = Mark.create({
   addInputRules() { return [scriptInputRule('_', this.name)]; },
 });
 
+const FontSize = Mark.create({
+  name: 'fontSize',
+  inclusive: true,
+  addAttributes() {
+    return {
+      size: {
+        default: null,
+        parseHTML: (element: HTMLElement) => {
+          const raw = element.getAttribute('data-font-size') ?? element.style.fontSize;
+          const size = Number.parseFloat(raw);
+          return Number.isFinite(size) ? size : null;
+        },
+        renderHTML: (attributes: { size?: number | null }) => {
+          if (!attributes.size) return {};
+          return {
+            'data-font-size': String(attributes.size),
+            style: `font-size: ${attributes.size}px`,
+          };
+        },
+      },
+    };
+  },
+  parseHTML() { return [{ tag: 'span[data-font-size]' }]; },
+  renderHTML({ HTMLAttributes }) { return ['span', mergeAttributes(HTMLAttributes), 0]; },
+});
+
 function matchesShortcut(event: KeyboardEvent, shortcut: string) {
   const parts = shortcut.toLowerCase().split('+').map((part) => part.trim()).filter(Boolean);
   const key = parts.at(-1);
@@ -375,6 +401,7 @@ function textWithMarks(node: JSONContent): string {
     if (mark.type === 'code') text = `\`${text}\``;
     if (mark.type === 'superscript') text = `^{${text}}`;
     if (mark.type === 'subscript') text = `_{${text}}`;
+    if (mark.type === 'fontSize' && mark.attrs?.size) text = `<span data-font-size="${mark.attrs.size}">${text}</span>`;
   }
   return text;
 }
@@ -560,6 +587,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
   const hostRef = useRef<HTMLSpanElement>(null);
   const fieldRef = useRef<MathfieldLike | null>(null);
   const initialLatexRef = useRef(node.attrs.latex ?? '');
+  const fontSizeRef = useRef<number | null>(node.attrs.fontSize ?? null);
   const autoWrappedRef = useRef(Boolean(node.attrs.autoWrapped));
   const wrappingRef = useRef(false);
   const exitingRef = useRef(false);
@@ -599,6 +627,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
       if (cancelled || !hostRef.current || fieldRef.current) return;
       field = document.createElement('math-field') as MathfieldLike;
       field.className = 'mathlive-field';
+      field.style.fontSize = fontSizeRef.current ? `${fontSizeRef.current}px` : '';
       field.value = initialLatexRef.current;
       field.setAttribute('default-mode', 'math');
       field.setAttribute('smart-mode', 'true');
@@ -683,6 +712,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
       const handleFocus = () => {
         setEditing(true);
         window.dispatchEvent(new CustomEvent('mathpad:mode', { detail: 'math' }));
+        window.dispatchEvent(new CustomEvent('mathpad:active-math', { detail: node.attrs.id ?? null }));
       };
       const handleBlur = () => {
         setEditing(false);
@@ -787,6 +817,11 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
     if (fieldRef.current && fieldRef.current.value !== (node.attrs.latex ?? '') && document.activeElement !== fieldRef.current) fieldRef.current.value = node.attrs.latex ?? '';
   }, [node.attrs.latex]);
 
+  useEffect(() => {
+    fontSizeRef.current = node.attrs.fontSize ?? null;
+    if (fieldRef.current) fieldRef.current.style.fontSize = fontSizeRef.current ? `${fontSizeRef.current}px` : '';
+  }, [node.attrs.fontSize]);
+
   return (
     <NodeViewWrapper as={display ? 'div' : 'span'} className={`math-node ${display ? 'math-node-display' : 'math-node-inline'} ${selected ? 'is-selected' : ''}`} data-display={display ? 'block' : 'inline'} data-math-id={node.attrs.id ?? ''} data-invalid={hasIssue ? 'true' : undefined} data-editing={editing ? 'true' : 'false'}>
       <span className="math-node-badge">MATH</span>
@@ -803,9 +838,9 @@ const MathInline = Node.create({
   inline: true,
   atom: true,
   selectable: true,
-  addAttributes() { return { id: { default: null }, latex: { default: '' } }; },
-  parseHTML() { return [{ tag: 'span[data-math-node="inline"]', getAttrs: (element) => ({ id: element.getAttribute('data-math-id'), latex: element.getAttribute('data-latex') ?? '' }) }]; },
-  renderHTML({ HTMLAttributes }) { return ['span', mergeAttributes(HTMLAttributes, { 'data-math-node': 'inline', 'data-math-id': HTMLAttributes.id ?? '', 'data-latex': HTMLAttributes.latex ?? '' })]; },
+  addAttributes() { return { id: { default: null }, latex: { default: '' }, fontSize: { default: null } }; },
+  parseHTML() { return [{ tag: 'span[data-math-node="inline"]', getAttrs: (element) => ({ id: element.getAttribute('data-math-id'), latex: element.getAttribute('data-latex') ?? '', fontSize: Number.parseFloat(element.getAttribute('data-font-size') ?? '') || null }) }]; },
+  renderHTML({ HTMLAttributes }) { return ['span', mergeAttributes(HTMLAttributes, { 'data-math-node': 'inline', 'data-math-id': HTMLAttributes.id ?? '', 'data-latex': HTMLAttributes.latex ?? '', 'data-font-size': HTMLAttributes.fontSize ?? undefined })]; },
   addNodeView() { return ReactNodeViewRenderer(MathFieldView); },
 });
 
@@ -814,9 +849,9 @@ const MathBlock = Node.create({
   group: 'block',
   atom: true,
   selectable: true,
-  addAttributes() { return { id: { default: null }, latex: { default: '' }, autoWrapped: { default: false } }; },
-  parseHTML() { return [{ tag: 'div[data-math-node="block"]', getAttrs: (element) => ({ id: element.getAttribute('data-math-id'), latex: element.getAttribute('data-latex') ?? '', autoWrapped: element.getAttribute('data-auto-wrapped') === 'true' }) }]; },
-  renderHTML({ HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes, { 'data-math-node': 'block', 'data-math-id': HTMLAttributes.id ?? '', 'data-latex': HTMLAttributes.latex ?? '', 'data-auto-wrapped': HTMLAttributes.autoWrapped ? 'true' : undefined })]; },
+  addAttributes() { return { id: { default: null }, latex: { default: '' }, autoWrapped: { default: false }, fontSize: { default: null } }; },
+  parseHTML() { return [{ tag: 'div[data-math-node="block"]', getAttrs: (element) => ({ id: element.getAttribute('data-math-id'), latex: element.getAttribute('data-latex') ?? '', autoWrapped: element.getAttribute('data-auto-wrapped') === 'true', fontSize: Number.parseFloat(element.getAttribute('data-font-size') ?? '') || null }) }]; },
+  renderHTML({ HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes, { 'data-math-node': 'block', 'data-math-id': HTMLAttributes.id ?? '', 'data-latex': HTMLAttributes.latex ?? '', 'data-auto-wrapped': HTMLAttributes.autoWrapped ? 'true' : undefined, 'data-font-size': HTMLAttributes.fontSize ?? undefined })]; },
   addNodeView() { return ReactNodeViewRenderer(MathFieldView); },
 });
 
@@ -890,6 +925,17 @@ function IconButton({ label, children, onClick, active = false, disabled = false
   return <Button type="button" variant="ghost" size="icon-sm" className={`toolbar-button ${active ? 'is-active' : ''}`} aria-label={label} title={label} onClick={onClick} disabled={disabled}>{children}</Button>;
 }
 
+function isMathNodeName(name: string | undefined) {
+  return name === 'mathInline' || name === 'mathBlock';
+}
+
+type SelectedNodeLike = { type: { name: string }; attrs: Record<string, unknown> };
+
+function getSelectedNode(editor: Editor | null): SelectedNodeLike | null {
+  const selection = editor?.state.selection as unknown as { node?: SelectedNodeLike } | undefined;
+  return selection?.node ?? null;
+}
+
 export default function Home() {
   const [notes, setNotes] = useState<NoteDocument[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
@@ -910,9 +956,11 @@ export default function Home() {
   const [noteMenuId, setNoteMenuId] = useState<string | null>(null);
   const [renameNoteId, setRenameNoteId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [activeMathId, setActiveMathId] = useState<string | null>(null);
   const hydratedRef = useRef(false);
   const editorRef = useRef<Editor | null>(null);
   const activeNoteRef = useRef<string | null>(null);
+  const activeMathIdRef = useRef<string | null>(null);
   const noteOperationRef = useRef(0);
   const sidebarPreferenceLoadedRef = useRef(false);
   const titleRef = useRef(title);
@@ -1089,6 +1137,7 @@ export default function Home() {
       TableKit,
       Superscript,
       Subscript,
+      FontSize,
       TaskList,
       TaskItem.configure({ nested: true }),
       Placeholder.configure({ placeholder: 'Start with a thought… Press / for inline math.' }),
@@ -1224,16 +1273,77 @@ export default function Home() {
     onUpdate: () => queueSave(),
   });
 
+  const updateCurrentFontSize = useCallback((value: string) => {
+    if (!editor) return;
+    const size = value === 'default' ? null : Number(value);
+    if (value !== 'default' && !Number.isFinite(size)) return;
+
+    const selectedNode = getSelectedNode(editor);
+    if (selectedNode && isMathNodeName(selectedNode.type.name)) {
+      editor.chain().focus().updateAttributes(selectedNode.type.name, { fontSize: size }).run();
+      return;
+    }
+
+    const activeMathId = activeMathIdRef.current;
+    if (activeMathId) {
+      let targetPosition: number | null = null;
+      let targetType: string | null = null;
+      editor.state.doc.descendants((node, position) => {
+        if (isMathNodeName(node.type.name) && node.attrs.id === activeMathId) {
+          targetPosition = position;
+          targetType = node.type.name;
+          return false;
+        }
+        return true;
+      });
+      if (targetPosition !== null && targetType) {
+        editor.chain().focus().setNodeSelection(targetPosition).updateAttributes(targetType, { fontSize: size }).run();
+        requestMathFocus(activeMathId);
+        return;
+      }
+    }
+
+    if (size === null) editor.chain().focus().unsetMark('fontSize').run();
+    else editor.chain().focus().setMark('fontSize', { size }).run();
+  }, [editor]);
+
+  let currentFontSize: number | null = editor?.getAttributes('fontSize')?.size ?? null;
+  const selectedNode = getSelectedNode(editor);
+  if (selectedNode && isMathNodeName(selectedNode.type.name)) currentFontSize = (selectedNode.attrs.fontSize as number | null | undefined) ?? null;
+  if (activeMathId && editor) {
+    editor.state.doc.descendants((node) => {
+      if (isMathNodeName(node.type.name) && node.attrs.id === activeMathId) {
+        currentFontSize = node.attrs.fontSize ?? null;
+        return false;
+      }
+      return true;
+    });
+  }
+
   const tableEditor = editor && selectionIsInTable(editor) ? editor : null;
 
   useEffect(() => { editorRef.current = editor; }, [editor]);
 
   useEffect(() => {
     const onMode = (event: Event) => setMode((event as CustomEvent<'text' | 'math'>).detail);
-    const onFocus = (event: FocusEvent) => setMode((event.target as HTMLElement | null)?.tagName === 'MATH-FIELD' ? 'math' : 'text');
+    const onActiveMath = (event: Event) => {
+      const id = (event as CustomEvent<string | null>).detail;
+      activeMathIdRef.current = id;
+      setActiveMathId(id);
+    };
+    const onFocus = (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isMathField = target?.tagName === 'MATH-FIELD';
+      setMode(isMathField ? 'math' : 'text');
+      if (!isMathField && target?.closest('.note-editor-content')) {
+        activeMathIdRef.current = null;
+        setActiveMathId(null);
+      }
+    };
     window.addEventListener('mathpad:mode', onMode);
+    window.addEventListener('mathpad:active-math', onActiveMath);
     document.addEventListener('focusin', onFocus);
-    return () => { window.removeEventListener('mathpad:mode', onMode); document.removeEventListener('focusin', onFocus); };
+    return () => { window.removeEventListener('mathpad:mode', onMode); window.removeEventListener('mathpad:active-math', onActiveMath); document.removeEventListener('focusin', onFocus); };
   }, []);
 
   useEffect(() => {
@@ -1533,6 +1643,18 @@ export default function Home() {
             <SelectTrigger className="theme-select" aria-label="Theme"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="system"><Monitor size={14} /> System</SelectItem><SelectItem value="light"><Sun size={14} /> Light</SelectItem><SelectItem value="dark"><Moon size={14} /> Dark</SelectItem></SelectContent>
           </Select>
+          <label className="font-size-control" title="Change the size of selected text or the active math">
+            <span>Size</span>
+            <select aria-label="Font size" value={currentFontSize ? String(currentFontSize) : 'default'} onChange={(event) => updateCurrentFontSize(event.target.value)}>
+              <option value="default">Default</option>
+              <option value="12">12 px</option>
+              <option value="14">14 px</option>
+              <option value="16">16 px</option>
+              <option value="18">18 px</option>
+              <option value="24">24 px</option>
+              <option value="32">32 px</option>
+            </select>
+          </label>
           <details className="settings-menu"><summary className="settings-trigger">⌘M</summary><div className="settings-popover"><span className="eyebrow">Keyboard</span><label htmlFor="math-shortcut">Math toggle shortcut</label><input id="math-shortcut" value={fallbackShortcut} onChange={(event) => updateFallbackShortcut(event.target.value)} onBlur={(event) => updateFallbackShortcut(event.target.value)} /><small>Use a format like Cmd/Ctrl+Shift+M as an alternate math toggle.</small></div></details>
           <Button type="button" variant="outline" size="sm" onClick={exportCurrentNote} title="Download Markdown with LaTeX"><Download size={15} /> Export</Button>
           <Button type="button" variant="ghost" size="icon-sm" onClick={() => setSidebarOpen((open) => !open)} aria-label={sidebarOpen ? 'Hide notes sidebar' : 'Show notes sidebar'} title={sidebarOpen ? 'Hide notes sidebar' : 'Show notes sidebar'}><BookOpen size={17} /></Button>
