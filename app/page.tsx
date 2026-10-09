@@ -32,6 +32,7 @@ import {
   List,
   ListChecks,
   ListOrdered,
+  Minus,
   Monitor,
   Moon,
   MoreHorizontal,
@@ -902,6 +903,7 @@ const blockItems: PaletteItem[] = [
 ];
 
 const mathItems: PaletteItem[] = [
+  // Logic
   { id: 'negation', label: 'Not / negation', detail: 'Logical negation', shortcut: 'neg', icon: '¬', action: { kind: 'inlineMath', latex: '\\neg ' } },
   { id: 'forall', label: 'For all', detail: 'Universal quantifier', shortcut: 'forall', icon: '∀', action: { kind: 'inlineMath', latex: '\\forall ' } },
   { id: 'exists', label: 'There exists', detail: 'Existential quantifier', shortcut: 'exists', icon: '∃', action: { kind: 'inlineMath', latex: '\\exists ' } },
@@ -909,16 +911,69 @@ const mathItems: PaletteItem[] = [
   { id: 'iff', label: 'If and only if', detail: 'Logical equivalence', shortcut: 'iff', icon: '⇔', action: { kind: 'inlineMath', latex: '\\iff ' } },
   { id: 'and', label: 'And', detail: 'Logical conjunction', shortcut: 'land', icon: '∧', action: { kind: 'inlineMath', latex: '\\land ' } },
   { id: 'or', label: 'Or', detail: 'Logical disjunction', shortcut: 'lor', icon: '∨', action: { kind: 'inlineMath', latex: '\\lor ' } },
+  { id: 'xor', label: 'Exclusive or', detail: 'Logical exclusive disjunction', shortcut: 'xor', icon: '⊕', action: { kind: 'inlineMath', latex: '\\oplus ' } },
+  { id: 'true', label: 'True', detail: 'Logical truth', shortcut: 'top', icon: '⊤', action: { kind: 'inlineMath', latex: '\\top ' } },
+  { id: 'false', label: 'False', detail: 'Logical falsity', shortcut: 'bot', icon: '⊥', action: { kind: 'inlineMath', latex: '\\bot ' } },
+  { id: 'therefore', label: 'Therefore', detail: 'Proof conclusion marker', shortcut: 'therefore', icon: '∴', action: { kind: 'inlineMath', latex: '\\therefore ' } },
+  { id: 'because', label: 'Because', detail: 'Proof reason marker', shortcut: 'because', icon: '∵', action: { kind: 'inlineMath', latex: '\\because ' } },
+
+  // Sets
   { id: 'in', label: 'Element of', detail: 'Set membership', shortcut: 'in', icon: '∈', action: { kind: 'inlineMath', latex: '\\in ' } },
   { id: 'not-in', label: 'Not an element of', detail: 'Negated set membership', shortcut: 'notin', icon: '∉', action: { kind: 'inlineMath', latex: '\\notin ' } },
+  { id: 'empty-set', label: 'Empty set', detail: 'The empty set', shortcut: 'emptyset', icon: '∅', action: { kind: 'inlineMath', latex: '\\emptyset ' } },
+  { id: 'subset', label: 'Proper subset', detail: 'A is a proper subset of B', shortcut: 'subset', icon: '⊂', action: { kind: 'inlineMath', latex: '\\subset ' } },
   { id: 'subseteq', label: 'Subset or equal', detail: 'Set inclusion', shortcut: 'subseteq', icon: '⊆', action: { kind: 'inlineMath', latex: '\\subseteq ' } },
+  { id: 'not-subset', label: 'Not a subset', detail: 'Set is not a subset', shortcut: 'nsubseteq', icon: '⊄', action: { kind: 'inlineMath', latex: '\\nsubseteq ' } },
+  { id: 'supset', label: 'Proper superset', detail: 'A is a proper superset of B', shortcut: 'supset', icon: '⊃', action: { kind: 'inlineMath', latex: '\\supset ' } },
+  { id: 'supseteq', label: 'Superset or equal', detail: 'Set contains another set', shortcut: 'supseteq', icon: '⊇', action: { kind: 'inlineMath', latex: '\\supseteq ' } },
   { id: 'union', label: 'Union', detail: 'Combine two sets', shortcut: 'cup', icon: '∪', action: { kind: 'inlineMath', latex: '\\cup ' } },
   { id: 'intersection', label: 'Intersection', detail: 'Common elements of two sets', shortcut: 'cap', icon: '∩', action: { kind: 'inlineMath', latex: '\\cap ' } },
+  { id: 'big-union', label: 'Big union', detail: 'Union over an indexed family', shortcut: 'bigcup', icon: '⋃', action: { kind: 'inlineMath', latex: '\\bigcup ' } },
+  { id: 'big-intersection', label: 'Big intersection', detail: 'Intersection over an indexed family', shortcut: 'bigcap', icon: '⋂', action: { kind: 'inlineMath', latex: '\\bigcap ' } },
+  { id: 'set-difference', label: 'Set difference', detail: 'Elements in one set but not another', shortcut: 'setminus', icon: '∖', action: { kind: 'inlineMath', latex: '\\setminus ' } },
+  { id: 'complement', label: 'Set complement', detail: 'The complement of a set', shortcut: 'complement', icon: 'ᶜ', action: { kind: 'inlineMath', latex: '\\complement ' } },
+  { id: 'symmetric-difference', label: 'Symmetric difference', detail: 'Elements in exactly one set', shortcut: 'triangle', icon: '△', action: { kind: 'inlineMath', latex: '\\triangle ' } },
+
+  // Number sets
   { id: 'naturals', label: 'Natural numbers', detail: 'The set ℕ', shortcut: 'NN', icon: 'ℕ', action: { kind: 'inlineMath', latex: '\\mathbb{N}' } },
   { id: 'integers', label: 'Integers', detail: 'The set ℤ', shortcut: 'ZZ', icon: 'ℤ', action: { kind: 'inlineMath', latex: '\\mathbb{Z}' } },
-  { id: 'therefore', label: 'Therefore', detail: 'Proof conclusion marker', shortcut: 'therefore', icon: '∴', action: { kind: 'inlineMath', latex: '\\therefore ' } },
+  { id: 'rationals', label: 'Rational numbers', detail: 'The set ℚ', shortcut: 'QQ', icon: 'ℚ', action: { kind: 'inlineMath', latex: '\\mathbb{Q}' } },
+  { id: 'reals', label: 'Real numbers', detail: 'The set ℝ', shortcut: 'RR', icon: 'ℝ', action: { kind: 'inlineMath', latex: '\\mathbb{R}' } },
+  { id: 'complex', label: 'Complex numbers', detail: 'The set ℂ', shortcut: 'CC', icon: 'ℂ', action: { kind: 'inlineMath', latex: '\\mathbb{C}' } },
+
+  // Relations and functions
+  { id: 'equals', label: 'Equivalent / congruent', detail: 'Logical or modular equivalence', shortcut: 'equiv', icon: '≡', action: { kind: 'inlineMath', latex: '\\equiv ' } },
+  { id: 'not-equals', label: 'Not equal', detail: 'Inequality relation', shortcut: 'neq', icon: '≠', action: { kind: 'inlineMath', latex: '\\neq ' } },
+  { id: 'less-equal', label: 'Less than or equal', detail: 'Non-strict lower bound', shortcut: 'leq', icon: '≤', action: { kind: 'inlineMath', latex: '\\leq ' } },
+  { id: 'greater-equal', label: 'Greater than or equal', detail: 'Non-strict upper bound', shortcut: 'geq', icon: '≥', action: { kind: 'inlineMath', latex: '\\geq ' } },
+  { id: 'approximately', label: 'Approximately equal', detail: 'Approximate equality', shortcut: 'approx', icon: '≈', action: { kind: 'inlineMath', latex: '\\approx ' } },
+  { id: 'divides', label: 'Divides', detail: 'Integer divisibility relation', shortcut: 'mid', icon: '∣', action: { kind: 'inlineMath', latex: '\\mid ' } },
+  { id: 'not-divides', label: 'Does not divide', detail: 'Negated divisibility relation', shortcut: 'nmid', icon: '∤', action: { kind: 'inlineMath', latex: '\\nmid ' } },
+  { id: 'proportional', label: 'Proportional to', detail: 'Constant-ratio relation', shortcut: 'propto', icon: '∝', action: { kind: 'inlineMath', latex: '\\propto ' } },
+  { id: 'to', label: 'Maps to', detail: 'Function or implication arrow', shortcut: 'to', icon: '→', action: { kind: 'inlineMath', latex: '\\to ' } },
+  { id: 'mapsto', label: 'Maps element to', detail: 'Function mapping arrow', shortcut: 'mapsto', icon: '↦', action: { kind: 'inlineMath', latex: '\\mapsto ' } },
+  { id: 'left-arrow', label: 'Left arrow', detail: 'Reverse direction arrow', shortcut: 'leftarrow', icon: '←', action: { kind: 'inlineMath', latex: '\\leftarrow ' } },
+  { id: 'right-arrow', label: 'Right arrow', detail: 'Forward direction arrow', shortcut: 'rightarrow', icon: '→', action: { kind: 'inlineMath', latex: '\\rightarrow ' } },
+  { id: 'iff-arrow', label: 'If and only if arrow', detail: 'Two-way logical arrow', shortcut: 'Leftrightarrow', icon: '⇔', action: { kind: 'inlineMath', latex: '\\Leftrightarrow ' } },
+  { id: 'composition', label: 'Function composition', detail: 'Composition operator', shortcut: 'circ', icon: '∘', action: { kind: 'inlineMath', latex: '\\circ ' } },
+  { id: 'parallel', label: 'Parallel', detail: 'Parallel relation', shortcut: 'parallel', icon: '∥', action: { kind: 'inlineMath', latex: '\\parallel ' } },
+
+  // Combinatorics and general math
   { id: 'binomial', label: 'Binomial coefficient', detail: 'Choose k from n', shortcut: 'choose', icon: '()()', action: { kind: 'inlineMath', latex: '\\binom{n}{k}' } },
+  { id: 'factorial', label: 'Factorial', detail: 'Counting permutations', shortcut: 'factorial', icon: '!', action: { kind: 'inlineMath', latex: 'n!' } },
+  { id: 'sum', label: 'Summation', detail: 'Indexed sum', shortcut: 'sum', icon: '∑', action: { kind: 'inlineMath', latex: '\\sum_{i=1}^{n}' } },
+  { id: 'product', label: 'Product', detail: 'Indexed product', shortcut: 'prod', icon: '∏', action: { kind: 'inlineMath', latex: '\\prod_{i=1}^{n}' } },
   { id: 'sqrt', label: 'Square root', detail: 'Radical with an editable placeholder', shortcut: 'sqrt', icon: '√', action: { kind: 'inlineMath', latex: '\\sqrt{}' } },
+  { id: 'infinity', label: 'Infinity', detail: 'Unbounded quantity', shortcut: 'infty', icon: '∞', action: { kind: 'inlineMath', latex: '\\infty ' } },
+  { id: 'pi', label: 'Pi', detail: 'The circle constant', shortcut: 'pi', icon: 'π', action: { kind: 'inlineMath', latex: '\\pi ' } },
+  { id: 'alpha', label: 'Alpha', detail: 'Greek letter α', shortcut: 'alpha', icon: 'α', action: { kind: 'inlineMath', latex: '\\alpha ' } },
+  { id: 'beta', label: 'Beta', detail: 'Greek letter β', shortcut: 'beta', icon: 'β', action: { kind: 'inlineMath', latex: '\\beta ' } },
+  { id: 'gamma', label: 'Gamma', detail: 'Greek letter γ', shortcut: 'gamma', icon: 'γ', action: { kind: 'inlineMath', latex: '\\gamma ' } },
+  { id: 'lambda', label: 'Lambda', detail: 'Greek letter λ', shortcut: 'lambda', icon: 'λ', action: { kind: 'inlineMath', latex: '\\lambda ' } },
+  { id: 'mu', label: 'Mu', detail: 'Greek letter μ', shortcut: 'mu', icon: 'μ', action: { kind: 'inlineMath', latex: '\\mu ' } },
+  { id: 'sigma', label: 'Sigma', detail: 'Greek letter σ', shortcut: 'sigma', icon: 'σ', action: { kind: 'inlineMath', latex: '\\sigma ' } },
+  { id: 'theta', label: 'Theta', detail: 'Greek letter θ', shortcut: 'theta', icon: 'θ', action: { kind: 'inlineMath', latex: '\\theta ' } },
+  { id: 'delta', label: 'Delta', detail: 'Greek letter Δ', shortcut: 'Delta', icon: 'Δ', action: { kind: 'inlineMath', latex: '\\Delta ' } },
 ];
 
 function IconButton({ label, children, onClick, active = false, disabled = false }: { label: string; children: React.ReactNode; onClick: () => void; active?: boolean; disabled?: boolean }) {
@@ -1320,6 +1375,12 @@ export default function Home() {
     });
   }
 
+  const displayedFontSize = currentFontSize ?? 15;
+  const adjustCurrentFontSize = useCallback((delta: number) => {
+    const next = Math.min(72, Math.max(8, displayedFontSize + delta));
+    updateCurrentFontSize(String(next));
+  }, [displayedFontSize, updateCurrentFontSize]);
+
   const tableEditor = editor && selectionIsInTable(editor) ? editor : null;
 
   useEffect(() => { editorRef.current = editor; }, [editor]);
@@ -1643,18 +1704,6 @@ export default function Home() {
             <SelectTrigger className="theme-select" aria-label="Theme"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value="system"><Monitor size={14} /> System</SelectItem><SelectItem value="light"><Sun size={14} /> Light</SelectItem><SelectItem value="dark"><Moon size={14} /> Dark</SelectItem></SelectContent>
           </Select>
-          <label className="font-size-control" title="Change the size of selected text or the active math">
-            <span>Size</span>
-            <select aria-label="Font size" value={currentFontSize ? String(currentFontSize) : 'default'} onChange={(event) => updateCurrentFontSize(event.target.value)}>
-              <option value="default">Default</option>
-              <option value="12">12 px</option>
-              <option value="14">14 px</option>
-              <option value="16">16 px</option>
-              <option value="18">18 px</option>
-              <option value="24">24 px</option>
-              <option value="32">32 px</option>
-            </select>
-          </label>
           <details className="settings-menu"><summary className="settings-trigger">⌘M</summary><div className="settings-popover"><span className="eyebrow">Keyboard</span><label htmlFor="math-shortcut">Math toggle shortcut</label><input id="math-shortcut" value={fallbackShortcut} onChange={(event) => updateFallbackShortcut(event.target.value)} onBlur={(event) => updateFallbackShortcut(event.target.value)} /><small>Use a format like Cmd/Ctrl+Shift+M as an alternate math toggle.</small></div></details>
           <Button type="button" variant="outline" size="sm" onClick={exportCurrentNote} title="Download Markdown with LaTeX"><Download size={15} /> Export</Button>
           <Button type="button" variant="ghost" size="icon-sm" onClick={() => setSidebarOpen((open) => !open)} aria-label={sidebarOpen ? 'Hide notes sidebar' : 'Show notes sidebar'} title={sidebarOpen ? 'Hide notes sidebar' : 'Show notes sidebar'}><BookOpen size={17} /></Button>
@@ -1688,7 +1737,41 @@ export default function Home() {
           <div className="paper-wrap"><article className="paper">
             <div className="paper-topline"><input className="note-title-input" value={title} onChange={(event) => { setTitle(event.target.value); titleRef.current = event.target.value; queueSave(); }} aria-label="Note title" placeholder="Untitled note" /><div className="paper-actions"><IconButton label="Undo" onClick={() => editor?.chain().focus().undo().run()} disabled={!editor?.can().undo()}><Undo2 size={16} /></IconButton><IconButton label="Redo" onClick={() => editor?.chain().focus().redo().run()} disabled={!editor?.can().redo()}><Redo2 size={16} /></IconButton><IconButton label="Print or save PDF" onClick={() => window.print()}><FileText size={16} /></IconButton><IconButton label="Delete note" onClick={() => void deleteCurrentNote()}><Trash2 size={16} /></IconButton></div></div>
 
-            <div className="editor-toolbar" aria-label="Formatting toolbar"><span className="toolbar-label">Write</span><IconButton label="Bold (Cmd/Ctrl+B)" active={editor?.isActive('bold')} onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={16} /></IconButton><IconButton label="Italic (Cmd/Ctrl+I)" active={editor?.isActive('italic')} onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={16} /></IconButton><IconButton label="Underline (Cmd/Ctrl+U)" active={editor?.isActive('underline')} onClick={() => editor?.chain().focus().toggleUnderline().run()}><UnderlineIcon size={16} /></IconButton><IconButton label="Strikethrough" active={editor?.isActive('strike')} onClick={() => editor?.chain().focus().toggleStrike().run()}><Strikethrough size={16} /></IconButton><IconButton label="Inline code" active={editor?.isActive('code')} onClick={() => editor?.chain().focus().toggleCode().run()}><Code2 size={16} /></IconButton><span className="toolbar-divider" /><span className="toolbar-label">Structure</span><IconButton label="Bullet list" active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={16} /></IconButton><IconButton label="Numbered list" active={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={16} /></IconButton><IconButton label="Checklist" active={editor?.isActive('taskList')} onClick={() => editor?.chain().focus().toggleTaskList().run()}><ListChecks size={16} /></IconButton><IconButton label="Blockquote" active={editor?.isActive('blockquote')} onClick={() => editor?.chain().focus().toggleBlockquote().run()}><Quote size={16} /></IconButton><IconButton label="Heading 3" active={editor?.isActive('heading', { level: 3 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}><Heading3 size={16} /></IconButton><div className="table-picker-anchor"><IconButton label="Insert table" onClick={openTablePicker}><Table2 size={16} /></IconButton>{tablePickerOpen && <dialog open className="table-picker" aria-label="Choose table size" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); setTablePickerOpen(false); editor?.commands.focus(); } }}><div className="table-picker-title"><strong>Insert table</strong><small>Choose the starting size</small></div><div className="table-picker-fields"><label>Rows<input ref={tableRowsInputRef} type="number" min="1" max="20" value={tableRows} onChange={(event) => setTableRows(clampTableDimension(event.target.value))} /></label><label>Columns<input type="number" min="1" max="20" value={tableColumns} onChange={(event) => setTableColumns(clampTableDimension(event.target.value))} /></label></div><label className="table-header-toggle"><input type="checkbox" checked={tableWithHeader} onChange={(event) => setTableWithHeader(event.target.checked)} /> Header row</label><div className="table-presets"><span>Presets</span><button type="button" onClick={() => { setTableRows(2); setTableColumns(2); }}>2 × 2</button><button type="button" onClick={() => { setTableRows(3); setTableColumns(3); }}>3 × 3</button><button type="button" onClick={() => { setTableRows(4); setTableColumns(6); }}>4 × 6</button></div><Button type="button" size="sm" onClick={insertTable}>Insert table</Button></dialog>}</div>{tableEditor && <><span className="toolbar-divider" /><span className="toolbar-label">Table</span><IconButton label="Add row below" onClick={() => tableEditor.chain().focus().addRowAfter().run()}><Rows3 size={16} /></IconButton><IconButton label="Delete current row" onClick={() => tableEditor.chain().focus().deleteRow().run()}><Rows3 size={16} /></IconButton><IconButton label="Add column before" onClick={() => tableEditor.chain().focus().addColumnBefore().run()}><Columns3 size={16} /></IconButton><IconButton label="Add column after" onClick={() => tableEditor.chain().focus().addColumnAfter().run()}><Columns3 size={16} /></IconButton><IconButton label="Delete current column" onClick={() => tableEditor.chain().focus().deleteColumn().run()}><Columns3 size={16} /></IconButton><IconButton label="Delete table" onClick={() => tableEditor.chain().focus().deleteTable().run()}><Trash2 size={16} /></IconButton></>}<span className="toolbar-divider" /><IconButton label="Inline math (/ or Cmd/Ctrl+Shift+M)" active={mode === 'math'} onClick={toggleMath}><Sigma size={17} /></IconButton><IconButton label="Insert block menu" onClick={() => { setTablePickerOpen(false); setPalette('blocks'); setPaletteQuery(''); }}><Plus size={17} /></IconButton></div>
+            <div className="editor-toolbar" aria-label="Formatting toolbar">
+              <span className="toolbar-label">Write</span>
+              <IconButton label="Bold (Cmd/Ctrl+B)" active={editor?.isActive('bold')} onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={16} /></IconButton>
+              <IconButton label="Italic (Cmd/Ctrl+I)" active={editor?.isActive('italic')} onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={16} /></IconButton>
+              <IconButton label="Underline (Cmd/Ctrl+U)" active={editor?.isActive('underline')} onClick={() => editor?.chain().focus().toggleUnderline().run()}><UnderlineIcon size={16} /></IconButton>
+              <IconButton label="Strikethrough" active={editor?.isActive('strike')} onClick={() => editor?.chain().focus().toggleStrike().run()}><Strikethrough size={16} /></IconButton>
+              <IconButton label="Inline code" active={editor?.isActive('code')} onClick={() => editor?.chain().focus().toggleCode().run()}><Code2 size={16} /></IconButton>
+              <div className="font-size-control" aria-label="Font size">
+                <IconButton label="Decrease font size" disabled={!editor} onClick={() => adjustCurrentFontSize(-1)}><Minus size={15} /></IconButton>
+                <button type="button" className="font-size-value" onClick={() => updateCurrentFontSize('default')} aria-label="Reset font size to default" title="Reset font size to default">{displayedFontSize} px</button>
+                <IconButton label="Increase font size" disabled={!editor} onClick={() => adjustCurrentFontSize(1)}><Plus size={15} /></IconButton>
+              </div>
+              <span className="toolbar-divider" />
+              <span className="toolbar-label">Structure</span>
+              <IconButton label="Bullet list" active={editor?.isActive('bulletList')} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={16} /></IconButton>
+              <IconButton label="Numbered list" active={editor?.isActive('orderedList')} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={16} /></IconButton>
+              <IconButton label="Checklist" active={editor?.isActive('taskList')} onClick={() => editor?.chain().focus().toggleTaskList().run()}><ListChecks size={16} /></IconButton>
+              <IconButton label="Blockquote" active={editor?.isActive('blockquote')} onClick={() => editor?.chain().focus().toggleBlockquote().run()}><Quote size={16} /></IconButton>
+              <IconButton label="Heading 3" active={editor?.isActive('heading', { level: 3 })} onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}><Heading3 size={16} /></IconButton>
+              <div className="table-picker-anchor">
+                <IconButton label="Insert table" onClick={openTablePicker}><Table2 size={16} /></IconButton>
+                {tablePickerOpen && <dialog open className="table-picker" aria-label="Choose table size" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); setTablePickerOpen(false); editor?.commands.focus(); } }}><div className="table-picker-title"><strong>Insert table</strong><small>Choose the starting size</small></div><div className="table-picker-fields"><label>Rows<input ref={tableRowsInputRef} type="number" min="1" max="20" value={tableRows} onChange={(event) => setTableRows(clampTableDimension(event.target.value))} /></label><label>Columns<input type="number" min="1" max="20" value={tableColumns} onChange={(event) => setTableColumns(clampTableDimension(event.target.value))} /></label></div><label className="table-header-toggle"><input type="checkbox" checked={tableWithHeader} onChange={(event) => setTableWithHeader(event.target.checked)} /> Header row</label><div className="table-presets"><span>Presets</span><button type="button" onClick={() => { setTableRows(2); setTableColumns(2); }}>2 × 2</button><button type="button" onClick={() => { setTableRows(3); setTableColumns(3); }}>3 × 3</button><button type="button" onClick={() => { setTableRows(4); setTableColumns(6); }}>4 × 6</button></div><Button type="button" size="sm" onClick={insertTable}>Insert table</Button></dialog>}
+              </div>
+              <span className="toolbar-divider" />
+              <span className="toolbar-label">Table</span>
+              <IconButton label="Add row below" disabled={!tableEditor} onClick={() => tableEditor?.chain().focus().addRowAfter().run()}><Rows3 size={16} /></IconButton>
+              <IconButton label="Delete current row" disabled={!tableEditor} onClick={() => tableEditor?.chain().focus().deleteRow().run()}><Rows3 size={16} /></IconButton>
+              <IconButton label="Add column before" disabled={!tableEditor} onClick={() => tableEditor?.chain().focus().addColumnBefore().run()}><Columns3 size={16} /></IconButton>
+              <IconButton label="Add column after" disabled={!tableEditor} onClick={() => tableEditor?.chain().focus().addColumnAfter().run()}><Columns3 size={16} /></IconButton>
+              <IconButton label="Delete current column" disabled={!tableEditor} onClick={() => tableEditor?.chain().focus().deleteColumn().run()}><Columns3 size={16} /></IconButton>
+              <IconButton label="Delete table" disabled={!tableEditor} onClick={() => tableEditor?.chain().focus().deleteTable().run()}><Trash2 size={16} /></IconButton>
+              <span className="toolbar-divider" />
+              <IconButton label="Inline math (/ or Cmd/Ctrl+Shift+M)" active={mode === 'math'} onClick={toggleMath}><Sigma size={17} /></IconButton>
+              <IconButton label="Insert block menu" onClick={() => { setTablePickerOpen(false); setPalette('blocks'); setPaletteQuery(''); }}><Plus size={17} /></IconButton>
+            </div>
 
             <div className="editor-shell">{palette && <dialog open className="palette-panel" aria-label={palette === 'blocks' ? 'Blocks and structure' : 'Math symbols'} onKeyDown={(event) => { if (event.key === 'Escape') { setPalette(null); editor?.commands.focus(); } }}><div className="palette-header"><div><span className="eyebrow">Quick insert</span><strong>{palette === 'blocks' ? 'Blocks & structure' : 'Math symbols'}</strong></div><Button type="button" variant="ghost" size="icon-xs" onClick={() => { setPalette(null); editor?.commands.focus(); }} aria-label="Close palette"><X size={15} /></Button></div><Command value={paletteQuery} onValueChange={setPaletteQuery} shouldFilter><CommandInput ref={paletteInputRef} placeholder={palette === 'blocks' ? 'Search blocks…' : 'Search symbols…'} /><CommandList><CommandEmpty>No matching insert.</CommandEmpty><CommandGroup heading={palette === 'blocks' ? 'Insert' : 'Discrete math first'}>{filteredItems.map((item) => <CommandItem key={item.id} value={`${item.label} ${item.detail} ${item.shortcut ?? ''}`} onSelect={() => selectPaletteItem(item)}><span className="palette-icon">{item.icon}</span><span className="palette-copy"><strong>{item.label}</strong><small>{item.detail}</small></span>{item.shortcut && <CommandShortcut>{item.shortcut}</CommandShortcut>}</CommandItem>)}</CommandGroup></CommandList></Command></dialog>}
               <EditorContent editor={editor} />

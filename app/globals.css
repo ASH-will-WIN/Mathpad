@@ -113,9 +113,6 @@
 .brand-name { font-size: 15px; font-weight: 750; letter-spacing: -.02em; line-height: 1.15; }
 .brand-subtitle { display: block; color: var(--ink-soft); font-size: 11px; letter-spacing: .01em; margin-top: 3px; }
 .header-actions { gap: 12px; }
-.font-size-control { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-soft); font-size: 10px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
-.font-size-control select { min-height: 30px; border: 1px solid var(--border); border-radius: 6px; background: var(--paper); color: var(--ink); padding: 0 6px; font-size: 11px; font-weight: 600; }
-.font-size-control select:focus { border-color: var(--blue); outline: 0; box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 15%, transparent); }
 .theme-select { width: 110px; height: 34px; font-size: 12px; }
 .theme-select svg { margin-right: 4px; }
 .settings-menu { position: relative; }
@@ -199,9 +196,12 @@
 .toolbar-button { color: var(--ink-soft); }
 .toolbar-button:hover, .toolbar-button.is-active { color: var(--accent-foreground); background: var(--blue-soft); }
 .toolbar-button:disabled { opacity: .36; }
-.editor-toolbar { min-height: 50px; gap: 2px; border-bottom: 1px solid var(--paper-line); }
+.editor-toolbar { position: sticky; top: 0; z-index: 20; min-height: 50px; gap: 2px; border-bottom: 1px solid var(--paper-line); background: var(--paper); box-shadow: 0 5px 14px color-mix(in srgb, var(--ink) 5%, transparent); }
 .toolbar-label { color: var(--ink-soft); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin: 0 6px 0 2px; }
 .toolbar-divider { width: 1px; height: 18px; background: var(--paper-line); margin: 0 9px; }
+.font-size-control { display: inline-flex; align-items: center; gap: 2px; margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--paper-line); white-space: nowrap; }
+.font-size-value { min-width: 51px; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: var(--muted); color: var(--ink); padding: 0 7px; font-family: var(--font-geist-mono), monospace; font-size: 11px; font-weight: 700; text-align: center; cursor: pointer; }
+.font-size-value:hover, .font-size-value:focus-visible { border-color: var(--blue); background: var(--blue-soft); color: var(--accent-foreground); outline: 0; }
 .editor-shell { position: relative; padding-top: 28px; }
 .note-editor-content { outline: 0; min-height: 560px; min-width: 0; max-width: 100%; color: var(--ink); font-size: 15px; line-height: 1.75; overflow-wrap: anywhere; }
 .note-editor-content > * { max-width: 100%; }
