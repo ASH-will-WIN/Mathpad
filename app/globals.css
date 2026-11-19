@@ -250,6 +250,7 @@
 .math-node-error { position: absolute; top: -8px; right: -7px; width: 14px; height: 14px; display: grid; place-items: center; border-radius: 50%; background: var(--destructive); color: white; font-size: 9px; font-weight: 800; line-height: 1; }
 .math-field-host { display: inline-flex; min-width: 0; max-width: 100%; }
 .math-node-display .math-field-host { display: flex; width: 100%; }
+.math-print-render { display: none; }
 .mathlive-field { display: block; min-width: 0; max-width: 100%; border: 0 !important; outline: 0 !important; border-radius: 0; box-shadow: none !important; padding: 1px 0; background: transparent !important; color: var(--ink); font-size: 1.05em; --caret-color: var(--blue); --selection-background-color: color-mix(in srgb, var(--blue) 25%, transparent); }
 .mathlive-field:focus, .mathlive-field:focus-within { border: 0 !important; outline: 0 !important; box-shadow: none !important; }
 .math-node-display .mathlive-field { width: 100%; }
@@ -341,6 +342,8 @@ kbd { font-family: var(--font-geist-mono), monospace; font-size: .92em; border: 
   .note-editor-content { min-height: 0; overflow: visible; color: #111 !important; }
   .note-editor-content table, .note-block, .math-node-display { break-inside: avoid; }
   .math-node { border-color: transparent !important; background: transparent !important; box-shadow: none !important; }
-  .mathlive-field { color: #111 !important; }
+  .math-field-host { display: none !important; }
+  .math-print-render { display: inline !important; color: #111 !important; }
+  .math-node-display .math-print-render { display: block !important; width: 100%; text-align: center; }
   * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }

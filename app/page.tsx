@@ -15,6 +15,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import TaskItem from '@tiptap/extension-task-item';
 import TaskList from '@tiptap/extension-task-list';
 import { TableKit } from '@tiptap/extension-table';
+import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import {
   Bold,
@@ -611,6 +612,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
         return;
       }
       updateAttributes({ latex: field.value });
+      window.dispatchEvent(new Event('mathpad:flush-save'));
       editor.chain().focus().setTextSelection(direction === 'before' ? position : position + 1).run();
     } catch {
       // The node can disappear while MathLive is handing focus back to Tiptap.
@@ -718,6 +720,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
       const handleBlur = () => {
         setEditing(false);
         persistLatex();
+        window.dispatchEvent(new Event('mathpad:flush-save'));
         window.setTimeout(() => {
           if (document.activeElement !== field) window.dispatchEvent(new CustomEvent('mathpad:mode', { detail: 'text' }));
         }, 0);
@@ -828,6 +831,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
       <span className="math-node-badge">MATH</span>
       {hasIssue && <span className="math-node-error" title="Recoverable LaTeX issue" aria-label="Recoverable LaTeX issue">!</span>}
       <span ref={hostRef} className="math-field-host" />
+      <span className="math-print-render" aria-hidden="true" dangerouslySetInnerHTML={{ __html: katex.renderToString(latex, { displayMode: display, throwOnError: false }) }} />
       <span className="math-node-hint">Tab / Escape to finish</span>
     </NodeViewWrapper>
   );
@@ -1187,13 +1191,16 @@ export default function Home() {
 
   useEffect(() => {
     const flushWhenLeaving = () => { void flushSave(); };
+    const flushMathEdit = () => { void flushSave(); };
     const flushWhenHidden = () => {
       if (document.visibilityState === 'hidden') flushWhenLeaving();
     };
     window.addEventListener('pagehide', flushWhenLeaving);
+    window.addEventListener('mathpad:flush-save', flushMathEdit);
     document.addEventListener('visibilitychange', flushWhenHidden);
     return () => {
       window.removeEventListener('pagehide', flushWhenLeaving);
+      window.removeEventListener('mathpad:flush-save', flushMathEdit);
       document.removeEventListener('visibilitychange', flushWhenHidden);
     };
   }, [flushSave]);
