@@ -1185,6 +1185,19 @@ export default function Home() {
     } catch { setSaveState('error'); }
   }, [syncRemoteNote]);
 
+  useEffect(() => {
+    const flushWhenLeaving = () => { void flushSave(); };
+    const flushWhenHidden = () => {
+      if (document.visibilityState === 'hidden') flushWhenLeaving();
+    };
+    window.addEventListener('pagehide', flushWhenLeaving);
+    document.addEventListener('visibilitychange', flushWhenHidden);
+    return () => {
+      window.removeEventListener('pagehide', flushWhenLeaving);
+      document.removeEventListener('visibilitychange', flushWhenHidden);
+    };
+  }, [flushSave]);
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -1735,7 +1748,7 @@ export default function Home() {
           <div className="workspace-bar"><div className="breadcrumb"><span>MathPad</span><span>/</span><span>{activeNote?.title || 'New note'}</span></div><div className="workspace-hints"><span className={`mode-pill mode-${mode}`}><span className="mode-dot" /> {mode === 'math' ? 'Math' : 'Text'}</span><span className={`sync-pill sync-${syncState}`} aria-live="polite" title={syncState === 'disabled' ? 'Add DATABASE_URL to your Vercel project and redeploy to enable Neon sync.' : undefined}><span className="save-dot" />{syncStatusText}</span><span className="hint-chip"><kbd>/</kbd> math</span><span className="hint-chip"><kbd>+</kbd> blocks</span><span className="hint-chip"><kbd>\\</kbd> symbols</span></div></div>
 
           <div className="paper-wrap"><article className="paper">
-            <div className="paper-topline"><input className="note-title-input" value={title} onChange={(event) => { setTitle(event.target.value); titleRef.current = event.target.value; queueSave(); }} aria-label="Note title" placeholder="Untitled note" /><div className="paper-actions"><IconButton label="Undo" onClick={() => editor?.chain().focus().undo().run()} disabled={!editor?.can().undo()}><Undo2 size={16} /></IconButton><IconButton label="Redo" onClick={() => editor?.chain().focus().redo().run()} disabled={!editor?.can().redo()}><Redo2 size={16} /></IconButton><IconButton label="Print or save PDF" onClick={() => window.print()}><FileText size={16} /></IconButton><IconButton label="Delete note" onClick={() => void deleteCurrentNote()}><Trash2 size={16} /></IconButton></div></div>
+            <div className="paper-topline"><input className="note-title-input" value={title} onChange={(event) => { setTitle(event.target.value); titleRef.current = event.target.value; queueSave(); }} aria-label="Note title" placeholder="Untitled note" /><div className="paper-actions"><IconButton label="Undo" onClick={() => editor?.chain().focus().undo().run()} disabled={!editor?.can().undo()}><Undo2 size={16} /></IconButton><IconButton label="Redo" onClick={() => editor?.chain().focus().redo().run()} disabled={!editor?.can().redo()}><Redo2 size={16} /></IconButton><IconButton label="Export PDF" onClick={() => window.print()}><FileText size={16} /></IconButton><IconButton label="Delete note" onClick={() => void deleteCurrentNote()}><Trash2 size={16} /></IconButton></div></div>
 
             <div className="editor-toolbar" aria-label="Formatting toolbar">
               <span className="toolbar-label">Write</span>

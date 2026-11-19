@@ -17,7 +17,9 @@ export function mergeNotes(localNotes: NoteDocument[], remoteNotes: NoteDocument
   const merged = new Map(localNotes.map((note) => [note.id, note]));
   for (const remoteNote of remoteNotes) {
     const localNote = merged.get(remoteNote.id);
-    if (!localNote || remoteNote.updatedAt >= localNote.updatedAt) merged.set(remoteNote.id, remoteNote);
+    // The local copy is the active editing source. Millisecond timestamps can
+    // tie when a local save races a cloud sync, so keep local content on ties.
+    if (!localNote || remoteNote.updatedAt > localNote.updatedAt) merged.set(remoteNote.id, remoteNote);
   }
   return sortNotes([...merged.values()]);
 }

@@ -331,9 +331,16 @@ kbd { font-family: var(--font-geist-mono), monospace; font-size: .92em; border: 
   .footer-mark { display: block; margin-top: 4px; }
 }
 @media print {
-  .app-header, .note-sidebar, .workspace-bar, .paper-actions, .editor-toolbar, .paper-footer, .math-node-badge, .math-node-hint { display: none !important; }
-  .mathpad-shell, .workspace, .paper-wrap { background: white; }
-  .app-layout { display: block; }
-  .paper { width: 100%; min-height: 0; border: 0; box-shadow: none; padding: 0; }
+  @page { margin: 16mm; }
+  html, body { width: auto; min-width: 0; margin: 0; background: white !important; color: #111 !important; }
+  .app-header, .note-sidebar, .sidebar-reopen, .sidebar-backdrop, .workspace-bar, .paper-actions, .editor-toolbar, .paper-footer, .math-node-badge, .math-node-hint, .palette-panel, .table-picker { display: none !important; }
+  .mathpad-shell, .app-layout, .workspace, .paper-wrap { display: block !important; width: 100% !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; background: white !important; color: #111 !important; }
+  .paper { width: 100%; min-height: 0; margin: 0; border: 0; border-radius: 0; box-shadow: none; padding: 0; background: white; color: #111; }
+  .paper-topline { border: 0; padding: 0 0 12px; }
+  .note-title-input { color: #111 !important; }
+  .note-editor-content { min-height: 0; overflow: visible; color: #111 !important; }
+  .note-editor-content table, .note-block, .math-node-display { break-inside: avoid; }
   .math-node { border-color: transparent !important; background: transparent !important; box-shadow: none !important; }
+  .mathlive-field { color: #111 !important; }
+  * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
