@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   EditorContent,
   NodeViewContent,
@@ -130,17 +130,20 @@ function normalizeMathShortcuts(latex: string) {
   return converted.replace(/\uE000(\d+)\uE001/g, (_match, index: string) => protectedTokens[Number(index)]);
 }
 
-function restoreUnsavedMathDraft(note: NoteDocument, baselineUpdatedAt = note.updatedAt): NoteDocument {
+function restoreUnsavedMathDraft(note: NoteDocument): NoteDocument {
   if (typeof window === 'undefined') return note;
   let latestDraftAt = note.updatedAt;
+  let restoredDraft = false;
   const restoreNode = (node: JSONContent): JSONContent => {
     const content = node.content?.map(restoreNode);
     if ((node.type === 'mathInline' || node.type === 'mathBlock') && node.attrs?.id) {
       try {
         const rawDraft = window.localStorage.getItem(`${MATH_DRAFT_KEY_PREFIX}${node.attrs.id}`);
         const draft = rawDraft ? JSON.parse(rawDraft) as { latex?: string; updatedAt?: number } : null;
-        if (draft?.latex !== undefined && Number(draft.updatedAt) > baselineUpdatedAt) {
-          latestDraftAt = Math.max(latestDraftAt, Number(draft.updatedAt));
+        if (draft?.latex !== undefined && draft.latex !== node.attrs.latex) {
+          const draftUpdatedAt = Number(draft.updatedAt);
+          latestDraftAt = Math.max(latestDraftAt, Number.isFinite(draftUpdatedAt) ? draftUpdatedAt : Date.now());
+          restoredDraft = true;
           return { ...node, attrs: { ...node.attrs, latex: draft.latex }, ...(content ? { content } : {}) };
         }
       } catch { /* Ignore malformed local recovery data. */ }
@@ -148,7 +151,30 @@ function restoreUnsavedMathDraft(note: NoteDocument, baselineUpdatedAt = note.up
     return { ...node, ...(content ? { content } : {}) };
   };
   const content = restoreNode(note.content);
-  return latestDraftAt > note.updatedAt ? { ...note, content, updatedAt: latestDraftAt } : note;
+  return restoredDraft || latestDraftAt > note.updatedAt ? { ...note, content, updatedAt: latestDraftAt } : note;
+}
+
+function clearSavedMathDrafts(note: NoteDocument) {
+  if (typeof window === 'undefined') return;
+  const clearNodeDrafts = (node: JSONContent) => {
+    if ((node.type === 'mathInline' || node.type === 'mathBlock') && node.attrs?.id) {
+      try {
+        const key = `${MATH_DRAFT_KEY_PREFIX}${node.attrs.id}`;
+        const rawDraft = window.localStorage.getItem(key);
+        const draft = rawDraft ? JSON.parse(rawDraft) as { latex?: string } : null;
+        if (draft?.latex === node.attrs.latex) window.localStorage.removeItem(key);
+      } catch { /* Ignore unavailable or malformed recovery data. */ }
+    }
+    node.content?.forEach(clearNodeDrafts);
+  };
+  clearNodeDrafts(note.content);
+}
+
+function storeMathDraft(id: string | undefined, latex: string) {
+  if (!id || typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(`${MATH_DRAFT_KEY_PREFIX}${id}`, JSON.stringify({ latex, updatedAt: Date.now() }));
+  } catch { /* IndexedDB autosave remains the primary store. */ }
 }
 
 function scriptInputRule(operator: '^' | '_', markName: string) {
@@ -609,6 +635,8 @@ function markdownToContent(markdown: string): JSONContent {
 function MathFieldView({ node, updateAttributes, selected, editor, getPos }: NodeViewProps) {
   const hostRef = useRef<HTMLSpanElement>(null);
   const fieldRef = useRef<MathfieldLike | null>(null);
+  const updateAttributesRef = useRef(updateAttributes);
+  useLayoutEffect(() => { updateAttributesRef.current = updateAttributes; }, [updateAttributes]);
   const initialLatexRef = useRef(node.attrs.latex ?? '');
   const fontSizeRef = useRef<number | null>(node.attrs.fontSize ?? null);
   const autoWrappedRef = useRef(Boolean(node.attrs.autoWrapped));
@@ -633,7 +661,8 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
         editor.commands.focus();
         return;
       }
-      updateAttributes({ latex: field.value });
+      updateAttributesRef.current({ latex: field.value });
+      storeMathDraft(node.attrs.id, field.value);
       window.dispatchEvent(new Event('mathpad:flush-save'));
       editor.chain().focus().setTextSelection(direction === 'before' ? position : position + 1).run();
     } catch {
@@ -641,7 +670,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
     } finally {
       window.setTimeout(() => { exitingRef.current = false; }, 0);
     }
-  }, [editor, getPos, updateAttributes]);
+  }, [editor, getPos, node.attrs.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -685,7 +714,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
         wrappingRef.current = true;
         field.value = next;
         autoWrappedRef.current = next !== raw;
-        updateAttributes({ latex: next, autoWrapped: autoWrappedRef.current });
+        updateAttributesRef.current({ latex: next, autoWrapped: autoWrappedRef.current });
         window.requestAnimationFrame(() => {
           if (field && fieldRef.current === field && field.isConnected) {
             field.position = wasAtEnd ? field.lastOffset : Math.min(field.position, field.lastOffset);
@@ -723,7 +752,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
       const persistLatex = () => {
         if (disposed || !field || fieldRef.current !== field || !field.isConnected) return;
         try {
-          updateAttributes(display ? { latex: field.value, autoWrapped: autoWrappedRef.current } : { latex: field.value });
+          updateAttributesRef.current(display ? { latex: field.value, autoWrapped: autoWrappedRef.current } : { latex: field.value });
         } catch { /* the node may have just been removed */ }
       };
       const handleInput = () => {
@@ -732,9 +761,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
           if (normalized !== field.value) field.value = normalized;
         }
         persistLatex();
-        window.dispatchEvent(new CustomEvent('mathpad:math-draft', {
-          detail: { id: node.attrs.id, latex: field?.value ?? '', updatedAt: Date.now() },
-        }));
+        storeMathDraft(node.attrs.id, field?.value ?? '');
         scheduleDisplayFit();
       };
       const handleFocus = () => {
@@ -745,6 +772,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
       const handleBlur = () => {
         setEditing(false);
         persistLatex();
+        storeMathDraft(node.attrs.id, field?.value ?? '');
         window.dispatchEvent(new Event('mathpad:flush-save'));
         window.setTimeout(() => {
           if (document.activeElement !== field) window.dispatchEvent(new CustomEvent('mathpad:mode', { detail: 'text' }));
@@ -840,7 +868,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
       cleanup?.();
       fieldRef.current = null;
     };
-  }, [display, editor, exitMath, getPos, node.attrs.id, updateAttributes]);
+  }, [display, editor, exitMath, getPos, node.attrs.id]);
 
   useEffect(() => {
     if (fieldRef.current && fieldRef.current.value !== (node.attrs.latex ?? '') && document.activeElement !== fieldRef.current) fieldRef.current.value = node.attrs.latex ?? '';
@@ -1201,6 +1229,7 @@ export default function Home() {
       const next: NoteDocument = { version: 1, id, title: titleRef.current.trim() || 'Untitled note', content: editor.getJSON(), updatedAt: Date.now() };
       try {
         await writeLocalNote(next);
+        clearSavedMathDrafts(next);
         setNotes((current) => [next, ...current.filter((note) => note.id !== id)].sort((a, b) => b.updatedAt - a.updatedAt));
         setSaveState('saved');
         syncRemoteNote(next);
@@ -1221,6 +1250,7 @@ export default function Home() {
     const next: NoteDocument = { version: 1, id, title: titleRef.current.trim() || 'Untitled note', content: editor.getJSON(), updatedAt: Date.now() };
     try {
       await writeLocalNote(next);
+      clearSavedMathDrafts(next);
       setNotes((current) => [next, ...current.filter((note) => note.id !== id)].sort((a, b) => b.updatedAt - a.updatedAt));
       setSaveState('saved');
       syncRemoteNote(next);
@@ -1230,24 +1260,15 @@ export default function Home() {
   useEffect(() => {
     const flushWhenLeaving = () => { void flushSave(); };
     const flushMathEdit = () => { void flushSave(); };
-    const writeMathDraft = (event: Event) => {
-      const { id, latex, updatedAt } = (event as CustomEvent<{ id?: string; latex?: string; updatedAt?: number }>).detail ?? {};
-      if (!id || latex === undefined) return;
-      try {
-        window.localStorage.setItem(`${MATH_DRAFT_KEY_PREFIX}${id}`, JSON.stringify({ latex, updatedAt: updatedAt ?? Date.now() }));
-      } catch { /* IndexedDB autosave remains the primary store. */ }
-    };
     const flushWhenHidden = () => {
       if (document.visibilityState === 'hidden') flushWhenLeaving();
     };
     window.addEventListener('pagehide', flushWhenLeaving);
     window.addEventListener('mathpad:flush-save', flushMathEdit);
-    window.addEventListener('mathpad:math-draft', writeMathDraft);
     document.addEventListener('visibilitychange', flushWhenHidden);
     return () => {
       window.removeEventListener('pagehide', flushWhenLeaving);
       window.removeEventListener('mathpad:flush-save', flushMathEdit);
-      window.removeEventListener('mathpad:math-draft', writeMathDraft);
       document.removeEventListener('visibilitychange', flushWhenHidden);
     };
   }, [flushSave]);
@@ -1494,13 +1515,13 @@ export default function Home() {
           return true;
         });
         stored = mergeNotes(localNotesToKeep, remote.notes);
-        const localUpdatedAtById = new Map(localNotes.map((note) => [note.id, note.updatedAt]));
         stored = stored
-          .map((note) => restoreUnsavedMathDraft(note, localUpdatedAtById.get(note.id) ?? note.updatedAt))
+          .map(restoreUnsavedMathDraft)
           .sort((a, b) => b.updatedAt - a.updatedAt);
         if (stored.length > 0) {
           setSyncState('syncing');
           await Promise.all(stored.map((note) => writeLocalNote(note)));
+          stored.forEach(clearSavedMathDrafts);
           await Promise.all(stored.map((note) => writeRemoteNote(note)));
           setSyncState('synced');
         }
@@ -1511,6 +1532,12 @@ export default function Home() {
         } else {
           setSyncState(navigator.onLine ? 'error' : 'offline');
         }
+      }
+      if (stored.length > 0 && remoteSyncEnabledRef.current !== true) {
+        try {
+          await Promise.all(stored.map((note) => writeLocalNote(note)));
+          stored.forEach(clearSavedMathDrafts);
+        } catch { setSaveState('error'); }
       }
       if (cancelled) return;
       if (stored.length > 0) {
