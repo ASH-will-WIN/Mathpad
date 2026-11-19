@@ -15,7 +15,6 @@ import Placeholder from '@tiptap/extension-placeholder';
 import TaskItem from '@tiptap/extension-task-item';
 import TaskList from '@tiptap/extension-task-list';
 import { TableKit } from '@tiptap/extension-table';
-import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import {
   Bold,
@@ -97,6 +96,7 @@ const THEME_KEY = 'mathpad-theme';
 const FALLBACK_SHORTCUT_KEY = 'mathpad-fallback-shortcut';
 const SIDEBAR_KEY = 'mathpad-sidebar-open';
 const DEFAULT_FALLBACK_SHORTCUT = 'Cmd/Ctrl+Shift+M';
+const MATH_DRAFT_KEY_PREFIX = 'mathpad-math-draft:';
 let pendingMathFocusId: string | null = null;
 type MathFocusPosition = 'start' | 'end';
 let pendingMathFocusPosition: MathFocusPosition = 'end';
@@ -128,6 +128,27 @@ function normalizeMathShortcuts(latex: string) {
   });
   const converted = masked.replace(/(^|[^A-Za-z\\])([NZQRC])(?=$|[^A-Za-z])/g, (_match, prefix: string, symbol: string) => `${prefix}${discreteSetShorthands[symbol]}`);
   return converted.replace(/\uE000(\d+)\uE001/g, (_match, index: string) => protectedTokens[Number(index)]);
+}
+
+function restoreUnsavedMathDraft(note: NoteDocument, baselineUpdatedAt = note.updatedAt): NoteDocument {
+  if (typeof window === 'undefined') return note;
+  let latestDraftAt = note.updatedAt;
+  const restoreNode = (node: JSONContent): JSONContent => {
+    const content = node.content?.map(restoreNode);
+    if ((node.type === 'mathInline' || node.type === 'mathBlock') && node.attrs?.id) {
+      try {
+        const rawDraft = window.localStorage.getItem(`${MATH_DRAFT_KEY_PREFIX}${node.attrs.id}`);
+        const draft = rawDraft ? JSON.parse(rawDraft) as { latex?: string; updatedAt?: number } : null;
+        if (draft?.latex !== undefined && Number(draft.updatedAt) > baselineUpdatedAt) {
+          latestDraftAt = Math.max(latestDraftAt, Number(draft.updatedAt));
+          return { ...node, attrs: { ...node.attrs, latex: draft.latex }, ...(content ? { content } : {}) };
+        }
+      } catch { /* Ignore malformed local recovery data. */ }
+    }
+    return { ...node, ...(content ? { content } : {}) };
+  };
+  const content = restoreNode(note.content);
+  return latestDraftAt > note.updatedAt ? { ...note, content, updatedAt: latestDraftAt } : note;
 }
 
 function scriptInputRule(operator: '^' | '_', markName: string) {
@@ -594,6 +615,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
   const wrappingRef = useRef(false);
   const exitingRef = useRef(false);
   const [editing, setEditing] = useState(false);
+  const [printHtml, setPrintHtml] = useState('');
   const display = node.type.name === 'mathBlock';
   const latex = node.attrs.latex ?? '';
   const hasIssue = hasRecoverableMathIssue(latex);
@@ -710,6 +732,9 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
           if (normalized !== field.value) field.value = normalized;
         }
         persistLatex();
+        window.dispatchEvent(new CustomEvent('mathpad:math-draft', {
+          detail: { id: node.attrs.id, latex: field?.value ?? '', updatedAt: Date.now() },
+        }));
         scheduleDisplayFit();
       };
       const handleFocus = () => {
@@ -826,12 +851,25 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
     if (fieldRef.current) fieldRef.current.style.fontSize = fontSizeRef.current ? `${fontSizeRef.current}px` : '';
   }, [node.attrs.fontSize]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void import('katex').then((module) => {
+      if (cancelled) return;
+      try {
+        setPrintHtml(module.default.renderToString(latex, { displayMode: display, throwOnError: false }));
+      } catch {
+        setPrintHtml('');
+      }
+    });
+    return () => { cancelled = true; };
+  }, [display, latex]);
+
   return (
     <NodeViewWrapper as={display ? 'div' : 'span'} className={`math-node ${display ? 'math-node-display' : 'math-node-inline'} ${selected ? 'is-selected' : ''}`} data-display={display ? 'block' : 'inline'} data-math-id={node.attrs.id ?? ''} data-invalid={hasIssue ? 'true' : undefined} data-editing={editing ? 'true' : 'false'}>
       <span className="math-node-badge">MATH</span>
       {hasIssue && <span className="math-node-error" title="Recoverable LaTeX issue" aria-label="Recoverable LaTeX issue">!</span>}
       <span ref={hostRef} className="math-field-host" />
-      <span className="math-print-render" aria-hidden="true" dangerouslySetInnerHTML={{ __html: katex.renderToString(latex, { displayMode: display, throwOnError: false }) }} />
+      <span className="math-print-render" aria-hidden="true" dangerouslySetInnerHTML={{ __html: printHtml }} />
       <span className="math-node-hint">Tab / Escape to finish</span>
     </NodeViewWrapper>
   );
@@ -1192,15 +1230,24 @@ export default function Home() {
   useEffect(() => {
     const flushWhenLeaving = () => { void flushSave(); };
     const flushMathEdit = () => { void flushSave(); };
+    const writeMathDraft = (event: Event) => {
+      const { id, latex, updatedAt } = (event as CustomEvent<{ id?: string; latex?: string; updatedAt?: number }>).detail ?? {};
+      if (!id || latex === undefined) return;
+      try {
+        window.localStorage.setItem(`${MATH_DRAFT_KEY_PREFIX}${id}`, JSON.stringify({ latex, updatedAt: updatedAt ?? Date.now() }));
+      } catch { /* IndexedDB autosave remains the primary store. */ }
+    };
     const flushWhenHidden = () => {
       if (document.visibilityState === 'hidden') flushWhenLeaving();
     };
     window.addEventListener('pagehide', flushWhenLeaving);
     window.addEventListener('mathpad:flush-save', flushMathEdit);
+    window.addEventListener('mathpad:math-draft', writeMathDraft);
     document.addEventListener('visibilitychange', flushWhenHidden);
     return () => {
       window.removeEventListener('pagehide', flushWhenLeaving);
       window.removeEventListener('mathpad:flush-save', flushMathEdit);
+      window.removeEventListener('mathpad:math-draft', writeMathDraft);
       document.removeEventListener('visibilitychange', flushWhenHidden);
     };
   }, [flushSave]);
@@ -1433,12 +1480,12 @@ export default function Home() {
     const hydrate = async () => {
       const localNotes = await readLocalNotes();
       if (cancelled) return;
-      let stored = localNotes;
+      let stored = localNotes.map((note) => restoreUnsavedMathDraft(note));
       try {
         const remote = await readRemoteNotes();
         remoteSyncEnabledRef.current = true;
         const deletedAtById = new Map(remote.deleted.map((item) => [item.id, item.deletedAt]));
-        const localNotesToKeep = localNotes.filter((note) => {
+        const localNotesToKeep = stored.filter((note) => {
           const deletedAt = deletedAtById.get(note.id);
           if (deletedAt && deletedAt >= note.updatedAt) {
             void removeLocalNote(note.id);
@@ -1447,6 +1494,10 @@ export default function Home() {
           return true;
         });
         stored = mergeNotes(localNotesToKeep, remote.notes);
+        const localUpdatedAtById = new Map(localNotes.map((note) => [note.id, note.updatedAt]));
+        stored = stored
+          .map((note) => restoreUnsavedMathDraft(note, localUpdatedAtById.get(note.id) ?? note.updatedAt))
+          .sort((a, b) => b.updatedAt - a.updatedAt);
         if (stored.length > 0) {
           setSyncState('syncing');
           await Promise.all(stored.map((note) => writeLocalNote(note)));
@@ -1707,6 +1758,17 @@ export default function Home() {
     downloadFile(`${(title || 'math-note').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.md`, nodeToMarkdown(editor.getJSON()), 'text/markdown');
   };
 
+  const printCurrentNote = () => {
+    const originalDocumentTitle = document.title;
+    document.title = (title.trim() || 'MathPad note').replace(/[\\/:*?"<>|]+/g, '-');
+    const restoreTitle = () => {
+      document.title = originalDocumentTitle;
+      window.removeEventListener('afterprint', restoreTitle);
+    };
+    window.addEventListener('afterprint', restoreTitle);
+    window.print();
+  };
+
   const activeNote = notes.find((note) => note.id === activeNoteId);
   const filteredItems = useMemo(() => (palette === 'blocks' ? blockItems : mathItems), [palette]);
   const syncStatusText = syncState === 'checking' ? 'Checking cloud' : syncState === 'disabled' ? 'Cloud sync off' : syncState === 'syncing' ? 'Syncing cloud' : syncState === 'synced' ? 'Synced to cloud' : syncState === 'offline' ? 'Offline · local only' : 'Cloud sync issue';
@@ -1755,7 +1817,7 @@ export default function Home() {
           <div className="workspace-bar"><div className="breadcrumb"><span>MathPad</span><span>/</span><span>{activeNote?.title || 'New note'}</span></div><div className="workspace-hints"><span className={`mode-pill mode-${mode}`}><span className="mode-dot" /> {mode === 'math' ? 'Math' : 'Text'}</span><span className={`sync-pill sync-${syncState}`} aria-live="polite" title={syncState === 'disabled' ? 'Add DATABASE_URL to your Vercel project and redeploy to enable Neon sync.' : undefined}><span className="save-dot" />{syncStatusText}</span><span className="hint-chip"><kbd>/</kbd> math</span><span className="hint-chip"><kbd>+</kbd> blocks</span><span className="hint-chip"><kbd>\\</kbd> symbols</span></div></div>
 
           <div className="paper-wrap"><article className="paper">
-            <div className="paper-topline"><input className="note-title-input" value={title} onChange={(event) => { setTitle(event.target.value); titleRef.current = event.target.value; queueSave(); }} aria-label="Note title" placeholder="Untitled note" /><div className="paper-actions"><IconButton label="Undo" onClick={() => editor?.chain().focus().undo().run()} disabled={!editor?.can().undo()}><Undo2 size={16} /></IconButton><IconButton label="Redo" onClick={() => editor?.chain().focus().redo().run()} disabled={!editor?.can().redo()}><Redo2 size={16} /></IconButton><IconButton label="Export PDF" onClick={() => window.print()}><FileText size={16} /></IconButton><IconButton label="Delete note" onClick={() => void deleteCurrentNote()}><Trash2 size={16} /></IconButton></div></div>
+            <div className="paper-topline"><input className="note-title-input" value={title} onChange={(event) => { setTitle(event.target.value); titleRef.current = event.target.value; queueSave(); }} aria-label="Note title" placeholder="Untitled note" /><div className="paper-actions"><IconButton label="Undo" onClick={() => editor?.chain().focus().undo().run()} disabled={!editor?.can().undo()}><Undo2 size={16} /></IconButton><IconButton label="Redo" onClick={() => editor?.chain().focus().redo().run()} disabled={!editor?.can().redo()}><Redo2 size={16} /></IconButton><IconButton label="Print or save as PDF" onClick={printCurrentNote}><FileText size={16} /></IconButton><IconButton label="Delete note" onClick={() => void deleteCurrentNote()}><Trash2 size={16} /></IconButton></div></div>
 
             <div className="editor-toolbar" aria-label="Formatting toolbar">
               <span className="toolbar-label">Write</span>
