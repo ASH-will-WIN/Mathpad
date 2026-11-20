@@ -131,7 +131,7 @@ function normalizeMathShortcuts(latex: string) {
 }
 
 function stripMathPlaceholders(latex: string) {
-  return latex.replace(/\\placeholder(?:\[[^\]]*\])?\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+  return latex.replace(/\\placeholder(?:\[[^\]]*\])?(?:\{(?:[^{}]|\{[^{}]*\})*\})?/g, '');
 }
 
 function restoreUnsavedMathDraft(note: NoteDocument): NoteDocument {
