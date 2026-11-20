@@ -130,6 +130,10 @@ function normalizeMathShortcuts(latex: string) {
   return converted.replace(/\uE000(\d+)\uE001/g, (_match, index: string) => protectedTokens[Number(index)]);
 }
 
+function stripMathPlaceholders(latex: string) {
+  return latex.replace(/\\placeholder(?:\[[^\]]*\])?\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+}
+
 function restoreUnsavedMathDraft(note: NoteDocument): NoteDocument {
   if (typeof window === 'undefined') return note;
   let latestDraftAt = note.updatedAt;
@@ -884,7 +888,7 @@ function MathFieldView({ node, updateAttributes, selected, editor, getPos }: Nod
     void import('katex').then((module) => {
       if (cancelled) return;
       try {
-        setPrintHtml(module.default.renderToString(latex, { displayMode: display, throwOnError: false }));
+        setPrintHtml(module.default.renderToString(stripMathPlaceholders(latex), { displayMode: display, throwOnError: false }));
       } catch {
         setPrintHtml('');
       }
